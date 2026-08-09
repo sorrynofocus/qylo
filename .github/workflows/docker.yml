@@ -6,17 +6,21 @@
 # Prove the image still builds from a clean checkout and that the resulting binaries and
 # caches actually work, without needing anything preinstalled on the runner.
 #
-# STATUS: UNVERIFIED. This workflow was authored before the repository had any commits or
-# a remote, so it has never executed. Expect to iterate on it after the first push - that
-# is the plan, not a failure. The most likely first failure is disk exhaustion; see the
-# "DISK BUDGET" notes below before changing anything else.
+# STATUS: VERIFIED. First execution 2026-08-08 (run 31290501806) passed on the first
+# attempt, every step green in 32m57s, producing a 9.63GB image - byte-for-byte the same
+# size as the locally built one. The air-gapped claim was independently reconfirmed here:
+# the offline smoke test ran under `--network none` and still printed tiktoken vocab
+# 100277 and embedding dims 384, so nothing was fetched at runtime.
+#
+# The disk exhaustion this file originally predicted did not happen, and was never close.
+# See "WHERE THE TIME GOES" below for the constraint that actually binds.
 
 name: docker
 
+# Manual only. A full build is ~33 minutes (see the timing note under DISK BUDGET),
+# which is far too much to spend on every push - especially docs-only commits. Run it
+# from the Actions tab, or `gh workflow run docker.yml`, when the image itself changed.
 on:
-  push:
-    branches: ["**"]
-  pull_request:
   workflow_dispatch:
     inputs:
       bake_llm_weights:
@@ -41,21 +45,38 @@ jobs:
 
     steps:
       # ---------------------------------------------------------------------
-      # DISK BUDGET
+      # WHERE THE TIME GOES  (measured, run 31290501806, 2026-08-08)
       #
-      # This is the constraint that decides whether this job can pass at all.
-      # A GitHub-hosted runner starts with roughly 10-20GB free, and the default
-      # build wants ~8GB for the image plus the 6.5GB model download plus the
-      # llama.cpp build tree. Reclaiming the preinstalled toolchains typically
-      # frees 20GB+ and is what makes the baked build feasible.
+      # Disk is not the constraint, despite what this comment used to claim.
+      # The runner arrived with a 145G root and 88G already free; this step took
+      # it to 107G. Of the ~19G reclaimed, only 1.851GB came from the docker
+      # prune - the rest was the preinstalled dotnet/android/boost/CodeQL trees.
+      # No ENOSPC anywhere in the logs. The step is kept as cheap insurance
+      # (1m36s) against a future runner image shipping fuller, not because the
+      # baked build needs it today.
       #
-      # If this job dies with ENOSPC, work down this ladder in order:
-      #   1. Confirm this step actually ran and freed what it claims (see output).
-      #   2. Re-run via workflow_dispatch with bake_llm_weights=0. If that is
-      #      green, the problem is purely the model size, not the build.
+      # The actual cost, biggest line items inside a 30m43s build step (these
+      # stages overlap, so they do not sum to the total):
+      #   18m52s  exporting layers to the GitHub Actions cache   <- 57% of build
+      #    5m36s  llama.cpp cmake build
+      #    6m00s  exporting + importing the docker image format
+      #      31s  downloading the 6.5GB Qwen GGUF   <- never the bottleneck
+      #
+      # So the thing to attack, if this ever needs to be faster, is `cache-to`
+      # further down. `mode=max` writes the whole ~9.6GB image against a 10GB
+      # per-repository Actions cache quota, so it sits at the ceiling and will
+      # evict rather than hit - the cold first run recorded zero CACHED steps.
+      # Options: mode=min, scope the cache to just the llamacpp-builder stage,
+      # or drop type=gha entirely. As configured it spends ~19 minutes to save
+      # at most the ~6 minutes of compile it could replay.
+      #
+      # If a run ever DOES die with ENOSPC, the original ladder still stands:
+      #   1. Confirm this step ran and freed what it claims (see df output).
+      #   2. Re-run with bake_llm_weights=0. If that is green, the problem is
+      #      purely the model size, not the build.
       #   3. Swap the llamacpp-builder stage for a pinned prebuilt tarball
-      #      (llama-<ref>-bin-ubuntu-x64.tar.gz) IN CI ONLY, leaving local builds
-      #      compiling from source.
+      #      (llama-<ref>-bin-ubuntu-x64.tar.gz) IN CI ONLY, leaving local
+      #      builds compiling from source.
       #   4. Move the baked build to a self-hosted runner, or build it on the
       #      target VM and skip CI for that variant.
       # ---------------------------------------------------------------------
