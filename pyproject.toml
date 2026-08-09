@@ -1,7 +1,7 @@
 [project]
 name = "qna-chatbot"
 version = "0.1.0"
-description = "A toolbot cli and qna chatbot utility"
+description = "Local RAG CLI assistant that answers from your docs and composes gated CLI commands"
 readme = "README.md"
 
 requires-python = ">=3.12"
