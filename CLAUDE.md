@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Setup, build, run
 
-Start with `README.md` that gives descriptive detail on full setup, build, and run instructions. Below are quick start commands during development/testing:
+Start with `README.md` for the overview; `docs/SETUP.md` has full setup/install detail and `docs/USAGE.md` has every flag and example. Below are quick start commands during development/testing:
 
 ```sh
 uv venv
@@ -38,7 +38,7 @@ Docker and Azure provisioning both live under `infra/` — see `infra/README.md`
 
 ## Configuration (.env)
 
-Model provider is chosen via `CHATBOT_MODEL_PROVIDER=azure|local` (see `.env.example`; full setup/install steps are in `README.md`).
+Model provider is chosen via `CHATBOT_MODEL_PROVIDER=azure|local` (see `.env.example`; full setup/install steps are in `docs/SETUP.md`).
 
 - Azure: `AZURE_OPENAI_ENDPOINT` (resource root only — do **not** append `/openai/v1`), `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_CHAT_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`. Newer models (e.g. `gpt-5-nano`) reject an explicit `temperature` other than the default.
 - Local: `LOCAL_OPENAI_BASE_URL`, `LOCAL_MODEL_NAME`, optional `LOCAL_OPENAI_API_KEY` — points at a running llama.cpp server.
@@ -47,7 +47,7 @@ Model provider is chosen via `CHATBOT_MODEL_PROVIDER=azure|local` (see `.env.exa
 
 ## Repository map
 
-Start with `README.md` for layout/usage. See `ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram.
+Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE.md` for flags and examples. See `ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram.
 
 ## Coding style
 

@@ -181,21 +181,21 @@ flowchart TD
     I --> I1["build_azure_chat_model() or build_local_chat_model()\n(+ env_required() for missing .env values)\n(optional: httpx_event_hooks wired in when --usage)"]
     I1 --> J["RagAssistant(vector_store, model, retrieval_k) — rag.py\n__init__ builds build_retrieval_tool() + create_agent(...)\n(optional: TelemetryCallbackHandler attached when --usage)"]
     J --> K["assistant.answer(question)\nagent.invoke({messages: [question]}, config)\n(config carries callbacks=[...] only when --usage)"]
-    K --> K1{"agent node: does the model\nwant to call a tool?"}
+    K --> K1{"agent node: does the model want to call a tool?"}
     K1 -- "tool_calls present" --> K2["retrieve_document_context(query) — rag.py\nvector_store.similarity_search() → context_from_document() per chunk"]
     K2 --> K3["ToolMessage appended → agent node runs again\n(may loop; model can refine the query)"]
     K3 --> K1
-    K1 -- "no more tool_calls" --> L["final agent result\n(result[\"structured_response\"], result[\"messages\"])"]
+    K1 -- "no more tool_calls" --> L["final agent result\n(result['structured_response'], result['messages'])"]
     L --> M{"structured_response populated?\n(ContractResponse via ToolStrategy — rag.py __init__)"}
     M -- "yes" --> M2["contract_response_to_model_response() — response_contract.py"]
     M -- "no (None)" --> M1["parse_model_response(raw AIMessage) — response_contract.py\ntext_after_label() / parse_unsafe_body() fallback"]
     M2 --> M3
     M1 --> M3
-    M3["deterministic Safety: unsafe override — RagAssistant.answer() (rag.py)\nCMD → UNSAFE if a retrieved ToolMessage contains \"(Safety: unsafe)\""]
+    M3["deterministic Safety: unsafe override — RagAssistant.answer() (rag.py)\nCMD → UNSAFE if a retrieved ToolMessage contains '(Safety: unsafe)'"]
     M3 --> N["print_model_response(response) — cli.py"]
-    N --> O{--exe or CHATBOT_EXECUTE_COMMANDS=true?}
-    O -- no --> P(["process exit 0"])
-    O -- yes --> Q["apply_exe_request(response, yolo) — cli.py"]
+    N --> O{"--exe or CHATBOT_EXECUTE_COMMANDS=true?"}
+    O -- "no" --> P["process exit 0"]
+    O -- "yes" --> Q["apply_exe_request(response, yolo) — cli.py"]
     Q --> Q1{"response.kind\n(match/case statement)"}
     Q1 -- "ANS or GENERAL" --> Q2["print 'Nothing was run.' — never executes"]
     Q1 -- "CMD" --> Q3["run_command(command) — subprocess.run(shell=True)"]
@@ -204,6 +204,7 @@ flowchart TD
     Q2 --> P
     Q3 --> P
     Q4 --> P
+
 ```
 
 Plain-text version of the same path, if Mermaid chart doesn't render:
@@ -217,3 +218,77 @@ Plain-text version of the same path, if Mermaid chart doesn't render:
 7. `answer()` returns the resulting `ModelResponse` to `cli.py::main()`, which passes it straight to `print_model_response()` — `main()` no longer calls `parse_model_response()` itself. If `--exe`/`CHATBOT_EXECUTE_COMMANDS` was set, `apply_exe_request()` applies the execution rules with a `match` on `response.kind` (`ANS`/`GENERAL` never run anything; `CMD` runs with `--exe`; `UNSAFE` runs only with `--exe --yolo`) via `run_command()` → `subprocess.run(shell=True)`.
 8. Process exits 0 after `main()` returns (unhandled exceptions — bad path, missing `.env` value, Azure/local API errors — propagate as a non-zero exit with a traceback; there's no top-level catch-all yet).
 
+
+Sequence diagram of the same path:
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant CLI as CLI (cli.py)
+    participant MP as Model Provider (model_provider.py)
+    participant RAG as RAG Pipeline (rag.py)
+    participant VS as Vector Store (InMemoryVectorStore)
+    participant AG as Agent (create_agent)
+
+    Note over CLI,AG: cli.py::main() orchestrates every stage. model_provider.py and rag.py never call each other.
+
+    CLI->>CLI: parse_args() then load_dotenv()
+    CLI->>MP: get_model_provider()
+    MP-->>CLI: provider (azure or local)
+
+    CLI->>RAG: scan_document_paths(source_path)
+    CLI->>RAG: load_documents(paths)
+    CLI->>RAG: split_documents(docs)
+    CLI->>RAG: build_embeddings()
+    CLI->>RAG: build_vectors(chunks, embeddings)
+    RAG->>VS: InMemoryVectorStore, rebuilt every run
+    RAG-->>CLI: vector_store
+
+    CLI->>MP: build_chat_model(telemetry)
+    MP->>MP: build_azure_chat_model() or build_local_chat_model()
+    MP-->>CLI: BaseChatModel
+
+    CLI->>RAG: RagAssistant(vector_store, model, retrieval_k)
+    RAG->>AG: create_agent(model, retrieval tool, response_format=ToolStrategy)
+
+    CLI->>RAG: assistant.answer(question)
+    RAG->>AG: agent.invoke({messages:[question]}, config)
+
+    loop until the model stops requesting tools (capped at 10 steps)
+        AG->>AG: agent node decides whether to call a tool
+        AG->>RAG: retrieve_document_context(query)
+        RAG->>VS: similarity_search(query, k)
+        VS-->>RAG: nearest chunks
+        RAG->>RAG: context_from_document() per chunk
+        RAG-->>AG: ToolMessage appended
+    end
+
+    AG-->>RAG: result (structured_response, messages)
+
+    alt structured_response populated
+        RAG->>RAG: contract_response_to_model_response()
+    else structured_response is None
+        RAG->>RAG: parse_model_response(raw AIMessage)
+    end
+
+    RAG->>RAG: deterministic override, CMD becomes UNSAFE when a ToolMessage carries a (Safety: unsafe) tag
+    RAG-->>CLI: ModelResponse
+
+    CLI->>CLI: print_model_response(response)
+
+    alt execution enabled (--exe or CHATBOT_EXECUTE_COMMANDS=true)
+        CLI->>CLI: apply_exe_request(response, yolo)
+        alt ANS or GENERAL
+            CLI->>CLI: nothing was run
+        else CMD, or UNSAFE with --yolo
+            CLI->>CLI: run_command() then subprocess.run(shell=True)
+        else UNSAFE without --yolo
+            CLI->>CLI: blocked, nothing was run
+        end
+    else no execution flag
+        CLI->>CLI: nothing was run
+    end
+
+    CLI->>CLI: process exit 0
+```

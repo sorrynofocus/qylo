@@ -41,7 +41,7 @@ This project uses the `uv` package manager. Building uses `pyproject.toml` to de
 
 ## Repository map
 
-Start with `README.md` for layout/usage. See `ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram. Docker packaging and Azure provisioning both live under `infra/` — see `infra/README.md` for which is which.
+Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE.md` for flags and examples. See `ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram. Docker packaging and Azure provisioning both live under `infra/` — see `infra/README.md` for which is which.
 
 ## Coding style
 
