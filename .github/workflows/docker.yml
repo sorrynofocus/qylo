@@ -20,6 +20,20 @@ name: docker
 # Manual only. A full build is ~33 minutes (see the timing note under DISK BUDGET),
 # which is far too much to spend on every push - especially docs-only commits. Run it
 # from the Actions tab, or `gh workflow run docker.yml`, when the image itself changed.
+
+# on:
+#   push:
+#     branches: ["**"]
+#   pull_request:
+#   workflow_dispatch:
+#     inputs:
+#       bake_llm_weights:
+#         description: "Bake the ~6.5GB Qwen GGUF into the image (1) or build the slim Azure-only image (0)"
+#         required: false
+#         default: "1"
+#         type: choice
+#         options: ["1", "0"]
+
 on:
   workflow_dispatch:
     inputs:
