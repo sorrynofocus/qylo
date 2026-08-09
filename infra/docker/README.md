@@ -224,7 +224,8 @@ you claim it does.
 
 **CI/CD.** `.github/workflows/docker.yml` builds the image and runs smoke checks. No secrets
 enter the image: `.env` is in `.dockerignore`, and configuration is passed at run time.
-See the disk notes in that file — a free runner's free space is the binding constraint.
+See the timing notes in that file — the GitHub Actions cache export, not disk, is what
+dominates the ~33 minute build. The workflow is manual (`workflow_dispatch`) for that reason.
 
 **Air-gapped install.** Build the default image (weights baked), `docker save` it, move the
 tarball to the target machine, `docker load`. Nothing on that machine needs internet access,

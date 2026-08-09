@@ -17,10 +17,6 @@
 
 name: docker
 
-# Manual only. A full build is ~33 minutes (see the timing note under DISK BUDGET),
-# which is far too much to spend on every push - especially docs-only commits. Run it
-# from the Actions tab, or `gh workflow run docker.yml`, when the image itself changed.
-
 # on:
 #   push:
 #     branches: ["**"]
@@ -134,8 +130,28 @@ jobs:
       - name: Smoke - CLI responds
         run: docker run --rm ${{ env.IMAGE }} --help
 
+      # This step used to point at /app/src, which does not exist in the runtime
+      # image - the runtime stage copies .venv and the caches, never the source
+      # tree, because --no-editable puts the package in site-packages instead
+      # (Dockerfile:157-163). compileall on a missing directory prints
+      # "Can't list" and exits 0, so the step passed no matter how broken the
+      # code was. Resolving the package through its own __file__ instead of a
+      # hardcoded site-packages path keeps this honest across a Python version
+      # bump. PYTHONPYCACHEPREFIX is insurance rather than a requirement:
+      # site-packages is appuser-owned today (Dockerfile:293 chowns /app), so
+      # .pyc writes do succeed without it - but a smoke check has no business
+      # mutating the venv it is inspecting, and if that chown ever changes this
+      # step would fail on permissions rather than on real syntax errors.
       - name: Smoke - sources compile inside the image
-        run: docker run --rm --entrypoint python ${{ env.IMAGE }} -m compileall -q /app/src
+        run: |
+          docker run --rm \
+            -e PYTHONPYCACHEPREFIX=/tmp/pycache \
+            --entrypoint python ${{ env.IMAGE }} -c "
+          import compileall, pathlib, sys, qna_chatbot
+          pkg = pathlib.Path(qna_chatbot.__file__).parent
+          print('compiling', pkg)
+          sys.exit(0 if compileall.compile_dir(str(pkg), quiet=1, force=True) else 1)
+          "
 
       # Proves the from-source llama.cpp build produced a binary that actually
       # runs on this CPU - i.e. that GGML_NATIVE=OFF did its job.
