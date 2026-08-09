@@ -1,0 +1,51 @@
+# Build context exclusions for infra/docker/Dockerfile.
+#
+# This file lives at the REPO ROOT rather than beside the Dockerfile, because the
+# build context is the repo root - the image needs src/, pyproject.toml, uv.lock,
+# README.md and data/. Docker reads .dockerignore from the context root, not from
+# the -f path.
+
+# Secrets. .env holds a live Azure API key; it must never enter a layer.
+# Configuration is supplied at run time via --env-file or -e instead.
+.env
+.env.local
+*.key
+*.pem
+
+# Host virtualenv - ~945MB of Windows-specific wheels that would be both useless
+# and actively wrong inside a Linux image, which builds its own via uv.
+.venv/
+
+# VCS and tooling metadata
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+
+# Python build artifacts
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Local run output
+*.log
+logs/
+
+# Infra sources. The Dockerfile and entrypoint are pulled in by explicit COPY,
+# so the rest (Bicep templates, deploy.py, docs) is not needed in the context.
+infra/azure/
+infra/README.md
+infra/docker/README.md
+infra/docker/docker-compose.yml
+
+# Project docs not consumed by the build. README.md is deliberately NOT excluded:
+# pyproject.toml declares readme = "README.md" and the uv build fails without it.
+ARCHITECTURE.md
+TROUBLESHOOT.MD
+CLAUDE.md
+AGENTS.md
+LEARNING.md

@@ -1,0 +1,92 @@
+# Cwinters / US / Arizona / ThinkPad T15g Gen 1
+# 2026.08.07
+# Compose definition for the QnA-Chatbot container and its optional llama.cpp sibling.
+#
+# Purpose:
+# Wires the CLI container to a local model server without anyone having to remember
+# container networking details. The `local` profile brings up llama-server; without
+# it, only the chatbot service exists and the Azure provider is assumed.
+#
+# Usage examples (see infra/docker/README.md for granular details):
+#
+# Run from the REPOSITORY ROOT, always with -f:
+#
+# One question against Azure:
+# docker compose -f infra/docker/docker-compose.yml run --rm chatbot "What is flogger?"
+#
+# Bring up the local model, then ask it something:
+# docker compose -f infra/docker/docker-compose.yml --profile local up -d llama
+# docker compose -f infra/docker/docker-compose.yml --profile local run --rm chatbot "What is flogger?"
+#
+# Tear down (add -v to also drop the downloaded-model volume):
+# docker compose -f infra/docker/docker-compose.yml --profile local down
+
+# NOTE ON PATHS: compose resolves relative paths against THIS FILE's directory,
+# not your shell's working directory. Hence ../../ everywhere - it points at the
+# repo root regardless of where the command is run from.
+
+services:
+
+  # The CLI. One-shot by design: it answers and exits, so `run --rm` fits it
+  # better than `up`.
+  chatbot:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      args:
+        # Default build bakes the Qwen weights in (~8GB) for a fully offline image.
+        # Override to 0 for the ~1.5GB Azure-only build.
+        BAKE_LLM_WEIGHTS: ${BAKE_LLM_WEIGHTS:-1}
+    image: qna-chatbot:latest
+    env_file:
+      - ../../.env
+    environment:
+      # Overrides .env's localhost value. Inside a container, "localhost" is the
+      # container itself, so the .env setting would point at nothing. "llama" is
+      # the service name below, which compose resolves on the shared network.
+      #
+      # If you instead run llama-server on the HOST, drop this override, set
+      # LOCAL_OPENAI_BASE_URL=http://host.docker.internal:8080/v1 in .env, and
+      # uncomment the extra_hosts block.
+      LOCAL_OPENAI_BASE_URL: http://llama:8080/v1
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    volumes:
+      # The knowledge base, read-only. Swap corpora without rebuilding the image.
+      - ../../data/documents:/app/data/documents:ro
+      # Where --usagelog writes.
+      - ../../logs:/app/logs
+    depends_on:
+      llama:
+        condition: service_healthy
+        required: false
+
+  # llama.cpp's OpenAI-compatible server. Same image as the chatbot - the
+  # entrypoint's `serve` mode starts the server instead of the CLI.
+  llama:
+    profiles: ["local"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      args:
+        BAKE_LLM_WEIGHTS: ${BAKE_LLM_WEIGHTS:-1}
+    image: qna-chatbot:latest
+    command: ["serve"]
+    ports:
+      - "8080:8080"
+    volumes:
+      # Only used when the image was built with BAKE_LLM_WEIGHTS=0; then the
+      # first start downloads ~6.5GB here so later containers reuse it.
+      - llama-models:/models
+    healthcheck:
+      # chatbot waits on this, so it does not fire a request at a server still
+      # loading 6.5GB of weights off disk.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Generous: a cold start with no baked weights includes the model download.
+      start_period: 300s
+
+volumes:
+  llama-models:

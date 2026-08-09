@@ -1,0 +1,128 @@
+# Cwinters / US / Arizona / ThinkPad T15g Gen 1
+# 2026.08.07
+# Builds the QnA-Chatbot container image and smoke-tests it.
+#
+# Purpose:
+# Prove the image still builds from a clean checkout and that the resulting binaries and
+# caches actually work, without needing anything preinstalled on the runner.
+#
+# STATUS: UNVERIFIED. This workflow was authored before the repository had any commits or
+# a remote, so it has never executed. Expect to iterate on it after the first push - that
+# is the plan, not a failure. The most likely first failure is disk exhaustion; see the
+# "DISK BUDGET" notes below before changing anything else.
+
+name: docker
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bake_llm_weights:
+        description: "Bake the ~6.5GB Qwen GGUF into the image (1) or build the slim Azure-only image (0)"
+        required: false
+        default: "1"
+        type: choice
+        options: ["1", "0"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      IMAGE: qna-chatbot:ci
+      # Default build bakes the weights. workflow_dispatch can override to 0.
+      BAKE_LLM_WEIGHTS: ${{ github.event.inputs.bake_llm_weights || '1' }}
+
+    steps:
+      # ---------------------------------------------------------------------
+      # DISK BUDGET
+      #
+      # This is the constraint that decides whether this job can pass at all.
+      # A GitHub-hosted runner starts with roughly 10-20GB free, and the default
+      # build wants ~8GB for the image plus the 6.5GB model download plus the
+      # llama.cpp build tree. Reclaiming the preinstalled toolchains typically
+      # frees 20GB+ and is what makes the baked build feasible.
+      #
+      # If this job dies with ENOSPC, work down this ladder in order:
+      #   1. Confirm this step actually ran and freed what it claims (see output).
+      #   2. Re-run via workflow_dispatch with bake_llm_weights=0. If that is
+      #      green, the problem is purely the model size, not the build.
+      #   3. Swap the llamacpp-builder stage for a pinned prebuilt tarball
+      #      (llama-<ref>-bin-ubuntu-x64.tar.gz) IN CI ONLY, leaving local builds
+      #      compiling from source.
+      #   4. Move the baked build to a self-hosted runner, or build it on the
+      #      target VM and skip CI for that variant.
+      # ---------------------------------------------------------------------
+      - name: Reclaim runner disk
+        run: |
+          echo "Before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          echo "After:"
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          # Context is the repo root, NOT infra/docker - the build needs src/,
+          # pyproject.toml, uv.lock, README.md and data/.
+          context: .
+          file: infra/docker/Dockerfile
+          build-args: |
+            BAKE_LLM_WEIGHTS=${{ env.BAKE_LLM_WEIGHTS }}
+          tags: ${{ env.IMAGE }}
+          # Build-only: there is no registry configured yet. Load into the local
+          # daemon so the smoke checks below can run against it.
+          push: false
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Report image size
+        run: docker image ls ${{ env.IMAGE }}
+
+      # Mirrors the manual "Verification" checks in the root README.
+      - name: Smoke - CLI responds
+        run: docker run --rm ${{ env.IMAGE }} --help
+
+      - name: Smoke - sources compile inside the image
+        run: docker run --rm --entrypoint python ${{ env.IMAGE }} -m compileall -q /app/src
+
+      # Proves the from-source llama.cpp build produced a binary that actually
+      # runs on this CPU - i.e. that GGML_NATIVE=OFF did its job.
+      - name: Smoke - llama.cpp binary runs
+        run: docker run --rm --entrypoint llama-server ${{ env.IMAGE }} --version
+
+      # The load-bearing test: with no network at all, the baked caches must be
+      # sufficient. A HuggingFace or tiktoken download attempt here means a cache
+      # did not bake correctly, and the "works air-gapped" claim is false.
+      - name: Smoke - offline caches resolve
+        run: |
+          docker run --rm --network none --entrypoint python ${{ env.IMAGE }} -c "
+          import tiktoken
+          from langchain_huggingface import HuggingFaceEmbeddings
+          print('tiktoken vocab:', tiktoken.get_encoding('cl100k_base').n_vocab)
+          e = HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')
+          print('embedding dims:', len(e.embed_query('hello')))
+          "
+
+      - name: Smoke - weights present when baked
+        if: env.BAKE_LLM_WEIGHTS == '1'
+        run: |
+          docker run --rm --entrypoint sh ${{ env.IMAGE }} -c \
+            'ls -lh /opt/models/qwen/*.gguf' \
+            || { echo "::error::BAKE_LLM_WEIGHTS=1 but no .gguf in the image"; exit 1; }

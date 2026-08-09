@@ -1,0 +1,48 @@
+[project]
+name = "qna-chatbot"
+version = "0.1.0"
+description = "A toolbot cli and qna chatbot utility"
+readme = "README.md"
+
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=1.0.0",
+    "langchain-community>=0.4.0",
+    "langchain-huggingface>=1.0.0",
+    "langchain-openai>=1.0.0",
+    "langchain-text-splitters>=1.0.0",
+    "langgraph>=1.2.8",
+    "pydantic>=2.0.0",
+    "pypdf>=5.0.0",
+    "python-dotenv>=1.1.0",
+    "sentence-transformers>=3.0.0",
+    "tiktoken>=0.13.0",
+    # Not imported directly - it arrives via sentence-transformers. Declared here
+    # only because [tool.uv.sources] binds to direct dependencies, and the CPU
+    # index pin below is what keeps the CUDA stack out of Linux builds.
+    "torch>=2.0.0",
+]
+
+[project.scripts]
+qna-chatbot = "qna_chatbot.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+# torch arrives transitively via sentence-transformers and is never imported by
+# this project directly. On Linux the default PyPI wheel drags in the whole CUDA
+# stack (nvidia-*, triton) - several GB that nothing here can use: embeddings run
+# on CPU (rag.py::build_embeddings passes no device), and llama.cpp publishes no
+# Linux CUDA build either. Pinning the CPU index keeps the container image and CI
+# runners from carrying it.
+#
+# The marker scopes this to Linux only, so Windows development resolution is
+# unchanged.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
