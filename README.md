@@ -1,6 +1,6 @@
-# QnA ChatBot
+# qylo
 
-> **Prototype name.** `qna-chatbot` (package name, CLI command, and repo name below) is a working title while the design settles. Expect a rename later likely into a CLI-assistant-style scheme (e.g. `toolbot-cli`) once scope stabilizes; that will touch `pyproject.toml`, the console-script entry point, and every doc's example commands, so it's deliberately deferred for now.
+> **Naming.** The repo is now `qylo`, and the project will take that name soon. `qna-chatbot` (the package name and CLI command) and the earlier working title `toolbot-cli` are the old names. **For now, treat `qna-chatbot` as the project** — every `uv run qna-chatbot ...` example below is current, not stale. Renaming the package itself would touch `pyproject.toml`, the console-script entry point, and every doc's example commands, so it's deliberately deferred.
 
 A local Retrieval-Augmented Generation (RAG) CLI assistant for querying a folder of PDF/Markdown/TXT documentation built for internal CLI-tool docs, where remembering every tool's exact flags is the actual problem. It ingests documents with HuggingFace embeddings into an in-memory vector store, then hands a chat model (Azure OpenAI or a local OpenAI-compatible server) a **retrieval tool** rather than pre-fetched context: the model decides for itself whether and how many times to search the knowledge base before answering, instead of always retrieving up front. Answers are combined with a small safety contract so the same assistant can also propose — and, opt-in, execute — CLI commands grounded in the docs.
 
@@ -519,4 +519,3 @@ uv run qna-chatbot --help
 This project's original inspiration and a quick leg-up came from:
 - https://github.com/AMit090912/PDF-Question-Bot---RAG
 - Coding and documentation assistance from ChatGPT (OpenAI), Claude Code (Anthropic), and Co-Pilot (Microsoft)
-- 
