@@ -95,7 +95,7 @@ This project is built and maintained across multiple models over time (Claude So
 
 ## TODO
 
-- CI cache is upside-down: `cache-to: type=gha,mode=max` writes ~9.6GB against a 10GB per-repo quota, so it evicts rather than hits — 18m52s of a 30m43s build step (57%) spent exporting a cache that recorded zero hits. Options, cheapest first: `mode=min`, scope the cache to the `llamacpp-builder` stage, or drop `type=gha`. See the comments in `.github/workflows/docker.yml`.
+- **`docs/BACKLOG.md` holds the full open-work list** (CI, testing, the `qylo` rename, docs polish). Only items below that change how you should work in the code right now are repeated here.
 - **Azure agent no longer converges (2026-08-08).** Every Azure run burns 5 retrieval calls and stops at the 10-step limit without a final answer — including `GENERAL` questions needing no retrieval. Reproduces on the host, so it is not container-related; the local provider converges fine on the same stack. This inverts the reliability ordering the notes below record. Not bisectable (no commits). See `TROUBLESHOOT.MD` (2026-08-08).
 - Local path-attribution gap: the 20-call batch's 2 misses weren't attributed to the structured-output path vs. the text-parsing fallback, so which fix applies (schema tuning vs. tool-calling reliability) is unknown. See `TROUBLESHOOT.MD`'s "Two open gaps, explained" section.
 - Ungrounded-destructive-command gap: a command request with no matching doc (no `Safety:` tag to check) has no deterministic safety-net — model judgment alone decides `CMD` vs `UNSAFE`. See `TROUBLESHOOT.MD`'s "Two open gaps, explained" section for why this needs a code change (command-text pattern matching), not just more grounding data.

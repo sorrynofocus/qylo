@@ -147,6 +147,7 @@ Embeds Message tags/data/info at the end of any file.
 - [docs/USAGE.md](docs/USAGE.md) — flags, examples, telemetry, error cases
 - [ARCHITECTURE.md](ARCHITECTURE.md) — concepts, design rationale, call-flow and sequence diagrams
 - [TROUBLESHOOT.MD](TROUBLESHOOT.MD) — dated debugging log and known gotchas
+- [docs/BACKLOG.md](docs/BACKLOG.md) — open work: known gaps, planned changes, and why they matter
 
 ## Build
 
