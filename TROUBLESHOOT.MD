@@ -4224,3 +4224,77 @@ step-limit message). That is the pre-existing behaviour measured earlier the sam
   `--internal` positive test; two new troubleshooting rows.
 - `docs/BACKLOG.md` - "Compose healthcheck can never pass" removed (resolved); CI "blocked
   on the healthcheck bug" replaced; runner-feasibility estimate replaced with measurements.
+
+---
+
+# 2026-08-09 - Status table: which routes work, where the model runs, and what they cost
+
+A single reference for what has actually been exercised, after a session that touched every
+combination of host/container and local/cloud. Everything below was run on 2026-08-09 unless
+noted. Rows marked NOT TESTED are called out rather than quietly omitted.
+
+## Routes
+
+| # | Route | Provider | Where the model runs | Status | Wall clock, 1 question |
+|---|---|---|---|---|---|
+| 1 | Host CLI (`uv run qna-chatbot`) | azure | cloud | **Works**, converges | not timed |
+| 2 | Host CLI | local | host llama-server | **Works** | not timed per question |
+| 3 | `docker run qna-chatbot:slim` | azure | cloud | **Works** | not timed |
+| 4 | `docker compose` (no profile) | azure | cloud | **Works**, no `llama` container created | not timed |
+| 5 | `docker compose --profile local` | local | `llama` container | **Works** - fixed this session | **628s** (3 model calls) |
+| 6 | `docker run` x2 on `--internal` net | local | `qna-llama` container | **Works, air-gapped** | **284s** (2 model calls) |
+| 7 | Route 6 pinned to 4 CPUs | local | `qna-llama` container | **Works** | **427s** (2 model calls) |
+| 8 | `docker run --network none` | local | - | **Cannot work by construction** | n/a |
+| 9 | Container -> host llama via `host.docker.internal` | local | host llama-server | **NOT TESTED** | - |
+
+Notes on the two non-working rows:
+
+- **Row 8** is documented in `infra/docker/README.md` as a test that "must produce an answer".
+  It cannot: `--network none` leaves nothing listening on `localhost:8080` and no server runs
+  in that container. It is still a valid NEGATIVE test - with `local` the pass condition is
+  failing on connection-refused, which proves ingestion, embedding and retrieval completed
+  offline. The README was corrected this session to say so. Reasoned, not executed.
+- **Row 9** is documented as the host-server alternative (`extra_hosts` + `host.docker.internal`).
+  Plausible, never run. Do not cite it as working.
+
+## Where the time goes (routes 5-7)
+
+| Measure | 16 CPU (unpinned) | 4 CPU (`--cpuset-cpus 0-3`) | ratio |
+|---|---|---|---|
+| prompt eval | 16.79 t/s | 11.3 t/s | 1.49x |
+| generation | 4.40 t/s | 2.9 t/s | 1.52x |
+| wall clock, 2-call question | 284s | 427s | 1.50x |
+
+- Model load: **6.8s** cold, **2.2s** warm page cache. Not a factor.
+- Ingestion + embedding: **~3.5s** total. The per-process corpus re-embed is NOT the
+  bottleneck - 95% of wall clock is `model_call`.
+- `truncated = 0` on every request at `LLAMA_CTX=16384`.
+- 4 vCPU costs only ~1.5x versus 16, not the ~4x assumed before measuring: this workload is
+  memory-bandwidth bound before it is core-count bound.
+
+## Answer quality, by provider
+
+Separate axis from "does the route work". A route can be plumbed correctly and still return a
+wrong label.
+
+| Provider | Harness | Answered | Correct | Note |
+|---|---|---|---|---|
+| azure | `score_contract.py 3` | 9/12 | 7/12 | converges; see below |
+| azure | command branch, 15 samples | - | 6/15 | the open defect, closed pending planning |
+| local | `score_contract.py 2` | **8/8** | 6/8 | no exhaustion at all; command branch 2/2 |
+| azure | Docker slim, one grounded question | 4/7 | - | 3 consecutive misses then 4/4 |
+
+Local is currently the better-behaved backend on both convergence and classification, which
+inverts the ordering the older `CLAUDE.md` guardrail records ("Azure reliable; local
+llama.cpp depends on the GGUF template").
+
+## Reading these numbers
+
+Sample sizes here are small and the backends are stochastic. The standing rule for that
+already has a home in this file - see **"Method note: n=1 is not a result"** (2026-08-08) -
+and it applies to every timing and every ratio above. Not restating it here.
+
+The one thing worth adding, because it is specific to the timings: **step-count variance moves
+wall clock more than CPU count does.** The same question took 2 model calls (284s) on one run
+and 3 (628s) on another. Any CI timeout must be sized for the worst case, not for the numbers
+in the table.
