@@ -138,10 +138,10 @@ All commands run from the repository root.
 ### Build
 
 ```sh
-# Default: fully self-contained, ~8GB
+# Default: fully self-contained, ~9.5GB (measured 9.63GB)
 docker build -f infra/docker/Dockerfile -t qna-chatbot .
 
-# Slim: Azure-only, ~1.5GB
+# Slim: Azure-only, ~3GB (measured 3.05GB)
 docker build -f infra/docker/Dockerfile --build-arg BAKE_LLM_WEIGHTS=0 -t qna-chatbot:slim .
 
 # Different llama.cpp release
@@ -189,13 +189,43 @@ Exits non-zero if any question failed, having attempted all of them.
 
 ```sh
 docker compose -f infra/docker/docker-compose.yml --profile local up -d llama
-docker compose -f infra/docker/docker-compose.yml --profile local run --rm chatbot "What is flogger?"
+
+# Wait for the model to load. Expect starting -> healthy in well under a minute:
+# a 6.2GB baked GGUF loaded in 6.8s on an NVMe-backed image layer.
+docker inspect --format '{{.State.Health.Status}}' \
+  $(docker compose -f infra/docker/docker-compose.yml --profile local ps -q llama)
+
+docker compose -f infra/docker/docker-compose.yml --profile local run --rm \
+  -e CHATBOT_MODEL_PROVIDER=local chatbot "What is flogger?"
 ```
 
-Set `CHATBOT_MODEL_PROVIDER=local` in `.env` first.
+`-e CHATBOT_MODEL_PROVIDER=local` on the `run` line rather than editing `.env`: it has higher
+precedence than the env file, and the app calls `load_dotenv()`, which does not override real
+environment variables. Nothing to remember to revert afterwards.
 
-Server tuning is exposed as environment variables on the `llama` service, with defaults that
-matter:
+You do not have to poll health by hand — `chatbot` declares
+`depends_on: llama: {condition: service_healthy}`, so `run` blocks until the probe passes and
+prints `Container docker-llama-1 Healthy` before it starts. The explicit `inspect` is for when
+that wait appears to hang and you want to see why.
+
+**If the answer comes back repetitive or repeats a "final answer" block**, check the server, not
+the model — context exhaustion mid-loop truncates *without raising*:
+
+```sh
+docker compose -f infra/docker/docker-compose.yml --profile local logs llama | grep "truncated ="
+```
+
+Every occurrence must read `truncated = 0`.
+
+> **Port note.** The `llama` service publishes `8080:8080`. If you are also running llama-server
+> on the host, whether these collide depends on the host bind address: a host server on
+> `127.0.0.1:8080` coexists with Docker's `0.0.0.0:8080`, but one on `0.0.0.0:8080` will not.
+> The published port is only for reaching the server from the host — `chatbot` reaches it over
+> the compose network at `llama:8080` and does not need it.
+
+Server tuning defaults live in `entrypoint.sh` (lines 46-49), not in `docker-compose.yml` — the
+`llama` service declares no `environment:` block. Override per run with `-e`, or add an
+`environment:` block to that service. The defaults that matter:
 
 | Variable | Default | Why |
 | --- | --- | --- |
@@ -203,10 +233,13 @@ matter:
 | `LLAMA_PARALLEL` | `1` | llama-server divides its context pool across slots and defaults to 4; the CLI is one-shot, so extra slots just quarter the usable window |
 | `LLAMA_NGL` | `99` | GPU layer offload; silently ignored on the CPU-only build, safe to always pass |
 
-Two things compose handles that a bare `docker run` will not:
+Two things compose does for you. A bare `docker run` can do both — see
+[the air-gapped local recipe](#air-gapped-install) — but you have to write them out:
 
 - **`LOCAL_OPENAI_BASE_URL`.** `.env` sets `http://localhost:8080/v1`, which *inside a
-  container* means the container itself. Compose overrides it to `http://llama:8080/v1`.
+  container* means the container itself, so every local run fails with a connection error
+  until it is overridden. Compose sets it to `http://llama:8080/v1`. With bare `docker run`,
+  pass `-e LOCAL_OPENAI_BASE_URL=http://<server-container>:8080/v1`.
   If you instead run llama-server on the host, set
   `LOCAL_OPENAI_BASE_URL=http://host.docker.internal:8080/v1` and uncomment the
   `extra_hosts` block in `docker-compose.yml`.
@@ -238,15 +271,50 @@ docker save qna-chatbot | gzip > qna-chatbot.tar.gz
 gunzip -c qna-chatbot.tar.gz | docker load
 ```
 
-Verify the claim rather than trusting it — `--network none` is the real test:
+Verify the claim rather than trusting it. There are two tests and they prove different things —
+running only the first will mislead you.
+
+**1. `--network none` — the negative test.** Proves nothing is fetched at run time:
 
 ```sh
 docker run --rm --network none qna-chatbot "What is flogger?"
 ```
 
-With `CHATBOT_MODEL_PROVIDER=local` this must produce an answer. With `azure` it must reach
-the model-call stage and fail *only* on the Azure connection — never on a HuggingFace or
-tiktoken download. A download failure there means a cache did not bake correctly.
+With `azure` it must reach the model-call stage and fail *only* on the Azure connection. With
+`local` it must fail on a **connection refused to `localhost:8080`** — and reaching that error
+is the pass condition, because it means ingestion, embedding and retrieval all completed with
+no network. It cannot produce an answer: `--network none` leaves nothing listening on port
+8080, and no model server is running inside that container. Either way, a **HuggingFace or
+tiktoken download failure means a cache did not bake correctly**.
+
+**2. `--internal` two containers — the positive test.** This is what actually proves local
+inference works offline, and it is the procedure behind the air-gap result recorded in
+`TROUBLESHOOT.MD` (2026-08-08, 2026-08-09):
+
+```sh
+docker network create --internal qna-airgap
+docker run -d --name qna-llama --network qna-airgap qna-chatbot:latest serve
+
+# Readiness — the same probe the compose healthcheck uses. Exit 0 means ready.
+docker exec qna-llama python3 -c \
+  "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"
+
+docker run --rm --network qna-airgap --env-file .env \
+  -e CHATBOT_MODEL_PROVIDER=local \
+  -e LOCAL_OPENAI_BASE_URL=http://qna-llama:8080/v1 \
+  qna-chatbot:latest "What is flogger?"
+
+docker rm -f qna-llama && docker network rm qna-airgap
+```
+
+`--internal` removes egress **and external DNS**, but Docker's embedded DNS still resolves
+container names — which is the only reason `http://qna-llama:8080/v1` works. Verified on this
+network: connecting to `1.1.1.1:443` raises `OSError`, resolving `pypi.org` raises `gaierror`,
+and resolving `qna-llama` returns `172.18.0.2`.
+
+`--env-file .env` is still required even though both provider settings are overridden:
+`LOCAL_MODEL_NAME` is read through `env_required` in `model_provider.py`, so it must be present
+even though llama.cpp ignores its value.
 
 ## Troubleshooting
 
@@ -265,6 +333,8 @@ tiktoken download. A download failure there means a cache did not bake correctly
 | `ENOSPC` during a CI build | Free-runner disk exhausted by the 6.5GB model | See the diagnostic ladder in `.github/workflows/docker.yml` |
 | Permission denied writing `--usagelog` | Bind-mount source created root-owned by Docker | `logs/` is committed with a `.gitkeep` so it exists with your ownership |
 | Local answers are repetitive, rambling, or repeat a "final answer" several times | Context window exhausted mid-agent-loop; llama-server truncated the conversation **without erroring** | Check `truncated =` in `docker logs <llama container>`. Raise `LLAMA_CTX` (default 16384). Do **not** assume the model is at fault |
+| `llama` never leaves `starting`; `--profile local` hangs on the dependency and never runs | The healthcheck probed with `curl`, which is **not in the runtime image** — only `libcurl4`, the shared library llama-server links against. `wget` is absent too (both exit 127) | Fixed: the probe is now `python3 -c "import urllib.request; ..."`, which needs no new package. To see a probe's own output: `docker inspect --format '{{json .State.Health}}' <id>` |
+| Local run inside a container fails with a connection error to `localhost:8080` | `.env` sets `LOCAL_OPENAI_BASE_URL=http://localhost:8080/v1`, which inside a container means *that container* | Compose overrides it to `http://llama:8080/v1`. With bare `docker run`, pass `-e LOCAL_OPENAI_BASE_URL=http://<server-container>:8080/v1` |
 
 ## Notes
 

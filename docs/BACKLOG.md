@@ -8,11 +8,11 @@ between sessions belongs here.
 
 **Related files, and what goes where:**
 
-- `CLAUDE.md` / `AGENTS.md` `## TODO` — kept short, and only for caveats that change how you
-  should *work in the code right now* (e.g. "Azure does not converge, so don't trust an Azure
+- `CLAUDE.md` / `AGENTS.md` `## TODO` -  kept short, and only for caveats that change how you
+  should *work in the code right now* (example: "Azure does not converge, so don't trust an Azure
   result as a baseline"). Chores and projects go here in `BACKLOG.md` instead.
 - `TROUBLESHOOT.MD` — append-only, dated. Records failures that already happened and how they
-  were diagnosed. This file records work not yet done.
+  were diagnosed. This file records work not yet done. It is a LARGE File to process. 
 - `ARCHITECTURE.md` — how the system works today, not what should change.
 
 ---
@@ -39,30 +39,31 @@ through Azure. Notes toward it:
 - Reuse what exists. `entrypoint.sh`'s `batch` mode already runs a questions file and exits
   non-zero if any question fails while still attempting all of them — written for a CI caller.
   `docker-compose.yml` already wires `chatbot` to `llama` over a shared network.
-- **Blocked on the healthcheck bug below**, which prevents `--profile local` from ever coming up.
-- **The Azure half fails today** — see "Azure agent no longer converges". Build it as the
-  regression harness for that bug, but it cannot be a green gate until the bug is fixed.
-- **Runner feasibility is unmeasured.** The baked model is Qwen3.5-9B `Q5_K_M` on a free runner's
-  4 vCPU / 16GB, no GPU. Expect low single-digit tokens/sec, and an agentic loop is several round
-  trips. One question could take 10-25 minutes on top of the existing 33-minute build, against a
-  90-minute timeout. `LLAMA_CTX` cannot be lowered to save memory — `entrypoint.sh` documents that
-  4096 truncates mid-loop and degenerates. Time a local run before committing to a CI step.
+- **No longer blocked.** The compose healthcheck bug that prevented `--profile local` from ever
+  coming up was fixed 2026-08-09 (the probe used `curl`, absent from the runtime image; it is now
+  a `python3 -c` one-liner). Both local-in-Docker routes are verified working — see
+  `TROUBLESHOOT.MD` (2026-08-09) for the exact commands.
+- **The Azure half converges again** (2026-08-09) and can now be a real end-to-end gate. Assert
+  the response contract, not answer text; leave `CMD` out until the classification defect is
+  fixed, since the command branch is only 6/15 reliable and a `CMD`-asserting step would flake.
+- **Runner feasibility — measured 2026-08-09, and the old estimate was pessimistic.** Timed
+  locally against the containerized 9B with the serve container pinned to 4 CPUs
+  (`--cpuset-cpus 0-3`, verified to bite: `sched_getaffinity` reports 4) to emulate a free
+  runner: **427s (7m07s)** for a 2-model-call question, extrapolating to ~10.5 min for a
+  3-call one. So ~7-11 min per question, not the 10-25 min previously guessed. Against a
+  90-minute timeout with ~33 min already spent on the build, two or three questions fit.
+  Model load costs only 2-7s and is not a factor.
+  - **4 vCPU is only ~1.5x slower than 16, not 4x** (generation 2.9 vs 4.4 t/s; prompt eval
+    11.3 vs 16.8 t/s). The workload is memory-bandwidth bound before it is core-count bound.
+  - **Step-count variance dominates CPU count.** The same question took 2 model calls (284s)
+    one run and 3 calls (628s) another. Size any CI timeout for the worst case; n=1 per
+    configuration here.
+  - `LLAMA_CTX` still cannot be lowered — `entrypoint.sh` documents that 4096 truncates
+    mid-loop and degenerates. `truncated = 0` held on every request in these runs.
 - **Azure needs secrets** (endpoint, key, deployment, api-version) as repo secrets.
   `workflow_dispatch`-only means fork PRs cannot trigger it, so exposure is limited to
   collaborators. `infra/docker/README.md` says "No secrets enter the image", which stays true but
   becomes misleading — secrets would enter the *runner*. That line needs a companion sentence.
-
-### Compose healthcheck can never pass
-
-*Found 2026-08-09.* `infra/docker/docker-compose.yml` healthchecks the `llama` service with
-`["CMD", "curl", "-fsS", "http://localhost:8080/health"]`, but **there is no `curl` binary in the
-runtime image** (nor `wget`) — verified by running both against `qna-chatbot:latest`. The
-Dockerfile installs `libcurl4`, which is the shared library `llama-server` links against for its
-own downloads, not a command-line tool.
-
-So `llama` never reports healthy, and `chatbot`'s `depends_on: condition: service_healthy` has no
-signal to wait on. Fix: use a Python one-liner for the healthcheck (Python is guaranteed present
-in the image and needs no new package), or add the `curl` package to the runtime stage.
 
 ### GHA cache is upside-down
 
@@ -127,17 +128,47 @@ The `toolbot-cli` mention in `README.md:3` is deliberate and stays; it documents
 
 ## Model behaviour
 
-These are also summarised in `CLAUDE.md` / `AGENTS.md` `## TODO`, because they change how you
-should interpret any result while working in the code.
+Only the path-attribution gap below is repeated in `CLAUDE.md` / `AGENTS.md` `## TODO`, because
+it changes how you should interpret a result while working in the code. The two command
+classification items are deliberately **not** repeated there — they are closed pending planning,
+and restating them alongside live work read as a standing instruction to go fix them.
 
-- **Azure agent no longer converges (2026-08-08).** Every Azure run burns 5 retrieval calls and
-  stops at the 10-step limit without producing a final answer — including `GENERAL` questions that
-  need no retrieval at all. Reproduces on the host, so it is not container-related; the local
-  provider converges fine on the same stack. This inverts the reliability ordering the older notes
-  record. Not bisectable (the work predates the first commit). See `TROUBLESHOOT.MD` (2026-08-08).
+### Command classification — closed pending future planning
+
+*Decided 2026-08-09.* Two items below want the same fix, and the obvious candidate is ruled
+out. Recorded here so it is not proposed a third time.
+
+**Rejected: command-text pattern matching.** A hardcoded table of destructive command patterns
+(`rm -rf`, `del /f /s /q`, `shutdown`, …) was prototyped and reverted the same day:
+
+1. **It is never complete.** Every new tool or shell idiom is another entry, indefinitely.
+2. **It only parses English.** The model can be asked, and will answer, in any language.
+3. **It breaks the measurement.** `tools/score_contract.py` scores the command case against
+   `{COMMAND, UNSAFE}`, so a deterministic promotion to `UNSAFE` satisfies that assertion
+   regardless of what the model did — the harness would report an improvement while having
+   stopped measuring the model at all.
+4. Found while prototyping: matching bare verbs false-fired on ordinary documentation prose
+   ("on shutdown, the logger flushes its buffer"), degrading the grounded path, which is the
+   one branch measuring 100%.
+
+**Why this is not urgent.** Execution is gated by design, not by classification. `CMD` needs
+`--exe`; `UNSAFE` needs `--exe --yolo`. `--yolo` exists precisely so the decision to run
+something destructive rests with the person typing it, who has accepted the precautions. The
+`Safety:` doc-tag path has tested well where a matching doc exists. Some requests will get past
+it; **enriching the documents is the more promising lever than more code.**
+
+**Do not reopen with a pattern list.** If revisited, the open question is narrow:
+`rag.py::answer()` gates the `Safety: unsafe` override on `kind is ResponseKind.COMMAND`, so a
+doc that *did* declare `unsafe` is ignored whenever the model mislabels the request as
+`ANS`/`GENERAL`.
+
+- **Command requests misclassify as `ANS`/`GENERAL` (2026-08-09).** Only 6 of 15 command
+  requests were labelled `CMD`/`UNSAFE` on Azure. Both wrong labels bypass the deterministic
+  `Safety: unsafe` override in `rag.py::answer()`. Prompt-level fixes have failed four times,
+  and added prompt text measurably costs convergence. Deferred — see the decision above.
 - **Local path-attribution gap.** The 20-call sample's 2 misses were never attributed to the
   structured-output path versus the text-parsing fallback, so it is unknown which fix applies —
   schema tuning or tool-calling reliability. See `TROUBLESHOOT.MD`, "Two open gaps, explained".
 - **Ungrounded-destructive-command gap.** A command request with no matching doc has no `Safety:`
-  tag to check and therefore no deterministic safety net — model judgment alone decides `CMD` vs
-  `UNSAFE`. Needs a code change (command-text pattern matching), not more grounding data.
+  tag to check, so model judgment alone decides `CMD` vs `UNSAFE`. Deferred — see the decision
+  above; `--exe` / `--yolo` is the intended boundary here.

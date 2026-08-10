@@ -14,9 +14,15 @@
 # One question against Azure:
 # docker compose -f infra/docker/docker-compose.yml run --rm chatbot "What is flogger?"
 #
-# Bring up the local model, then ask it something:
+# Bring up the local model, then ask it something. The `run` blocks until the
+# healthcheck below passes, so there is no need to sleep or poll by hand:
 # docker compose -f infra/docker/docker-compose.yml --profile local up -d llama
-# docker compose -f infra/docker/docker-compose.yml --profile local run --rm chatbot "What is flogger?"
+# docker compose -f infra/docker/docker-compose.yml --profile local run --rm \
+#   -e CHATBOT_MODEL_PROVIDER=local chatbot "What is flogger?"
+#
+# To watch the model load instead of waiting blind:
+# docker inspect --format '{{.State.Health.Status}}' \
+#   $(docker compose -f infra/docker/docker-compose.yml --profile local ps -q llama)
 #
 # Tear down (add -v to also drop the downloaded-model volume):
 # docker compose -f infra/docker/docker-compose.yml --profile local down
@@ -81,7 +87,27 @@ services:
     healthcheck:
       # chatbot waits on this, so it does not fire a request at a server still
       # loading 6.5GB of weights off disk.
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      #
+      # Python, NOT curl. The runtime stage installs libcurl4 - the shared library
+      # llama-server links against for its own -hf downloads - but no curl or wget
+      # BINARY (verified: both exit 127 in the image). The obvious
+      # ["CMD","curl",...] probe could therefore never pass, so llama never
+      # reported healthy and --profile local could never come up. Python needs no
+      # new package: the base image is python:3.12-slim-bookworm.
+      #
+      # No try/except is needed. urlopen raises HTTPError on any non-2xx -
+      # llama-server answers /health with 503 while the model is still loading -
+      # and URLError on a refused connection. An uncaught exception exits 1, which
+      # is exactly Docker's "unhealthy".
+      #
+      # CMD (not CMD-SHELL) execs directly with no shell, so the whole program has
+      # to be one argv element, and the port must be the literal 8080 - there is no
+      # shell to expand $LLAMA_PORT.
+      test:
+        - CMD
+        - python3
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"
       interval: 10s
       timeout: 5s
       retries: 30
