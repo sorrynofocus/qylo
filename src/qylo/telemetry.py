@@ -30,10 +30,10 @@
 # Usage examples (see README for granular details):
 #
 # Print the per-stage table after the answer:
-# uv run qna-chatbot "What is flogger?" --usage
+# uv run qylo "What is flogger?" --usage
 #
 # Also append one JSON line per event, for comparing runs (requires --usage):
-# uv run qna-chatbot "What is flogger?" --usage --usagelog runs.log
+# uv run qylo "What is flogger?" --usage --usagelog runs.log
 #
 # Instrument a local stage from cli.py (harmless when telemetry is None):
 # with measure(telemetry, Stage.EMBEDDING) as metrics:
@@ -74,7 +74,7 @@ import tiktoken
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 
-from qna_chatbot import string_table
+from qylo import string_table
 
 # tiktoken has no llama.cpp-specific encoding available, so cl100k_base is
 # used as a same-order-of-magnitude estimate for every provider; actual

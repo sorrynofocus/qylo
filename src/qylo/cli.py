@@ -8,13 +8,13 @@
 # Usage examples (see README for granular details):
 # 
 # Ask against all supported files in `data/documents`:
-# uv run qna-chatbot "What is flogger and what logging features does it support?"
+# uv run qylo "What is flogger and what logging features does it support?"
 #
 # Use a different document folder or file:
-# uv run qna-chatbot "What does this document say?" --documents path\to\knowledge-base
+# uv run qylo "What does this document say?" --documents path\to\knowledge-base
 #
 # Ask something the knowledge base doesn't cover
-# uv run qna-chatbot "Who wrote the novel Moby Dick?"
+# uv run qylo "Who wrote the novel Moby Dick?"
 #
 
 from __future__ import annotations
@@ -28,10 +28,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from qna_chatbot import string_table
-from qna_chatbot.response_contract import ModelResponse, ResponseKind
-from qna_chatbot.model_provider import ModelProvider, build_chat_model, get_model_provider
-from qna_chatbot.telemetry import Stage, TelemetrySession, measure
+from qylo import string_table
+from qylo.response_contract import ModelResponse, ResponseKind
+from qylo.model_provider import ModelProvider, build_chat_model, get_model_provider
+from qylo.telemetry import Stage, TelemetrySession, measure
 
 
 DEFAULT_DOCS_PATH = Path("data") / "documents"
@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     """
 
     parser = argparse.ArgumentParser(
-        prog="qna-chatbot",
+        prog="qylo",
         description=string_table.CLI_DESCRIPTION,
     )
     parser.add_argument("question", help=string_table.HELP_QUESTION)
@@ -244,7 +244,7 @@ def main() -> None:
     # Import the heavier RAG dependencies after argument parsing so --help
     # stays fast and easy to understand. It gets SLLLOWW!
     # Leave this here, lot's math -heh
-    from qna_chatbot.rag import (
+    from qylo.rag import (
                                 RagAssistant,
                                 build_embeddings,
                                 build_vectors,

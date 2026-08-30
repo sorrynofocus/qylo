@@ -33,8 +33,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from qna_chatbot.model_provider import build_chat_model
-from qna_chatbot.rag import (
+from qylo.model_provider import build_chat_model
+from qylo.rag import (
     RagAssistant,
     build_embeddings,
     build_vectors,

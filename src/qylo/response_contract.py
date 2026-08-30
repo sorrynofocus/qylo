@@ -49,7 +49,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from qna_chatbot import string_table
+from qylo import string_table
 
 
 class ResponseKind(Enum):

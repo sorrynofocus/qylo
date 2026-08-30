@@ -60,15 +60,15 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.errors import GraphRecursionError
 
-from qna_chatbot import string_table
-from qna_chatbot.response_contract import (
+from qylo import string_table
+from qylo.response_contract import (
     ContractResponse,
     ModelResponse,
     ResponseKind,
     contract_response_to_model_response,
     parse_model_response,
 )
-from qna_chatbot.telemetry import TelemetryCallbackHandler, TelemetrySession
+from qylo.telemetry import TelemetryCallbackHandler, TelemetrySession
 
 # Default local embedding model. It maps text into a 384-dimensional vector
 # space so semantically similar chunks can be found with similarity search.

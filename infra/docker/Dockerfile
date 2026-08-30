@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Cwinters / US / Arizona / ThinkPad T15g Gen 1
 # 2026.08.07
-# Container image for the QnA-Chatbot RAG CLI. Installs everything the by-hand host setup
+# Container image for the Qylo RAG CLI. Installs everything the by-hand host setup
 # installs - llama.cpp built from source, the HuggingFace embedding model, tiktoken's BPE
 # table, and every Python dependency - so a fresh machine or a CI runner needs only Docker.
 #
@@ -15,16 +15,16 @@
 # IMPORTANT: the build context is the REPOSITORY ROOT, not this directory.
 #
 # Full image, Qwen weights baked in (~8GB, runs offline against llama.cpp):
-# docker build -f infra/docker/Dockerfile -t qna-chatbot .
+# docker build -f infra/docker/Dockerfile -t qylo .
 #
 # Slim image, Azure-only (~1.5GB, no local model - use when disk is tight, e.g. CI):
-# docker build -f infra/docker/Dockerfile --build-arg BAKE_LLM_WEIGHTS=0 -t qna-chatbot:slim .
+# docker build -f infra/docker/Dockerfile --build-arg BAKE_LLM_WEIGHTS=0 -t qylo:slim .
 #
 # Ask a question (Azure provider):
-# docker run --rm --env-file .env qna-chatbot "What is flogger?"
+# docker run --rm --env-file .env qylo "What is flogger?"
 #
 # Pin a different llama.cpp release:
-# docker build -f infra/docker/Dockerfile --build-arg LLAMACPP_REF=b10298 -t qna-chatbot .
+# docker build -f infra/docker/Dockerfile --build-arg LLAMACPP_REF=b10298 -t qylo .
 
 
 # Declared here, BEFORE the first FROM, because that is the only scope Docker will
@@ -158,7 +158,7 @@ COPY src/ ./src/
 # editable mode by default, which writes only a .pth pointing back at /app/src.
 # The runtime stage copies .venv but not the source tree, so an editable install
 # produces a venv whose console script exists and immediately dies with
-# "ModuleNotFoundError: No module named 'qna_chatbot'". --no-editable copies the
+# "ModuleNotFoundError: No module named 'qylo'". --no-editable copies the
 # package into site-packages so the venv is self-contained.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable

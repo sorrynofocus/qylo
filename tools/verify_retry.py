@@ -28,9 +28,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from qna_chatbot import rag
-from qna_chatbot.model_provider import build_chat_model
-from qna_chatbot.rag import (
+from qylo import rag
+from qylo.model_provider import build_chat_model
+from qylo.rag import (
     RagAssistant,
     build_embeddings,
     build_vectors,
@@ -38,7 +38,7 @@ from qna_chatbot.rag import (
     scan_document_paths,
     split_documents,
 )
-from qna_chatbot.response_contract import ResponseKind
+from qylo.response_contract import ResponseKind
 
 
 def main() -> None:

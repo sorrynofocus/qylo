@@ -1,4 +1,4 @@
-# Docker: containerized install for QnA-Chatbot
+# Docker: containerized install for Qylo
 
 This directory packages the application itself. It is the counterpart to
 [`../azure/`](../azure/README.md), which provisions the *cloud model* — see
@@ -124,7 +124,7 @@ The image needs `src/`, `pyproject.toml`, `uv.lock`, `README.md` and `data/`, no
 live in this directory. So always build from the repo root with `-f`:
 
 ```sh
-docker build -f infra/docker/Dockerfile -t qna-chatbot .
+docker build -f infra/docker/Dockerfile -t qylo .
 ```
 
 `cd infra/docker && docker build .` will fail, and the error will not obviously point here.
@@ -139,13 +139,13 @@ All commands run from the repository root.
 
 ```sh
 # Default: fully self-contained, ~9.5GB (measured 9.63GB)
-docker build -f infra/docker/Dockerfile -t qna-chatbot .
+docker build -f infra/docker/Dockerfile -t qylo .
 
 # Slim: Azure-only, ~3GB (measured 3.05GB)
-docker build -f infra/docker/Dockerfile --build-arg BAKE_LLM_WEIGHTS=0 -t qna-chatbot:slim .
+docker build -f infra/docker/Dockerfile --build-arg BAKE_LLM_WEIGHTS=0 -t qylo:slim .
 
 # Different llama.cpp release
-docker build -f infra/docker/Dockerfile --build-arg LLAMACPP_REF=b10298 -t qna-chatbot .
+docker build -f infra/docker/Dockerfile --build-arg LLAMACPP_REF=b10298 -t qylo .
 ```
 
 ### Ask a question (Azure provider)
@@ -153,7 +153,7 @@ docker build -f infra/docker/Dockerfile --build-arg LLAMACPP_REF=b10298 -t qna-c
 `.env` is never baked into the image — it holds a live API key. Pass it at run time:
 
 ```sh
-docker run --rm --env-file .env qna-chatbot "What is flogger?"
+docker run --rm --env-file .env qylo "What is flogger?"
 ```
 
 ### Use your own documents
@@ -163,10 +163,10 @@ The image ships `data/documents` as a default corpus. Mount over it to use anoth
 ```sh
 docker run --rm --env-file .env \
   -v "$PWD/my-docs:/app/data/documents:ro" \
-  qna-chatbot "What does this document say?"
+  qylo "What does this document say?"
 ```
 
-Every `qna-chatbot` flag works unchanged — anything the entrypoint doesn't recognize is
+Every `qylo` flag works unchanged — anything the entrypoint doesn't recognize is
 passed straight through to the CLI.
 
 ### Batch mode
@@ -175,7 +175,7 @@ One question per line; blank lines and `#` comments are skipped:
 
 ```sh
 printf 'What is flogger?\nWhat does TagEXE do?\n' > questions.txt
-docker run --rm --env-file .env -v "$PWD/questions.txt:/q.txt" qna-chatbot batch /q.txt
+docker run --rm --env-file .env -v "$PWD/questions.txt:/q.txt" qylo batch /q.txt
 ```
 
 Exits non-zero if any question failed, having attempted all of them.
@@ -265,10 +265,10 @@ tarball to the target machine, `docker load`. Nothing on that machine needs inte
 Python, or llama.cpp.
 
 ```sh
-docker build -f infra/docker/Dockerfile -t qna-chatbot .
-docker save qna-chatbot | gzip > qna-chatbot.tar.gz
+docker build -f infra/docker/Dockerfile -t qylo .
+docker save qylo | gzip > qylo.tar.gz
 # ...transfer...
-gunzip -c qna-chatbot.tar.gz | docker load
+gunzip -c qylo.tar.gz | docker load
 ```
 
 Verify the claim rather than trusting it. There are two tests and they prove different things —
@@ -277,7 +277,7 @@ running only the first will mislead you.
 **1. `--network none` — the negative test.** Proves nothing is fetched at run time:
 
 ```sh
-docker run --rm --network none qna-chatbot "What is flogger?"
+docker run --rm --network none qylo "What is flogger?"
 ```
 
 With `azure` it must reach the model-call stage and fail *only* on the Azure connection. With
@@ -293,7 +293,7 @@ inference works offline, and it is the procedure behind the air-gap result recor
 
 ```sh
 docker network create --internal qna-airgap
-docker run -d --name qna-llama --network qna-airgap qna-chatbot:latest serve
+docker run -d --name qna-llama --network qna-airgap qylo:latest serve
 
 # Readiness — the same probe the compose healthcheck uses. Exit 0 means ready.
 docker exec qna-llama python3 -c \
@@ -302,7 +302,7 @@ docker exec qna-llama python3 -c \
 docker run --rm --network qna-airgap --env-file .env \
   -e CHATBOT_MODEL_PROVIDER=local \
   -e LOCAL_OPENAI_BASE_URL=http://qna-llama:8080/v1 \
-  qna-chatbot:latest "What is flogger?"
+  qylo:latest "What is flogger?"
 
 docker rm -f qna-llama && docker network rm qna-airgap
 ```
@@ -328,7 +328,7 @@ even though llama.cpp ignores its value.
 | `error reading from server: EOF` partway through the llama.cpp compile | Build VM OOM-killed — too many parallel compiles for the allocated memory | Raise Docker memory, or lower `--build-arg BUILD_JOBS` (default 4) |
 | Model download hangs for hours with no output, daemon stops responding | Same memory shortage, but during the 6.5GB pull it wedges instead of dying | Raise Docker memory; see the WSL 2 note below |
 | `docker info` reports far less memory than you configured | **Docker Desktop on WSL 2**: restarting Docker Desktop does *not* re-read `.wslconfig` | `wsl --shutdown`, then restart Docker Desktop — see below |
-| `ModuleNotFoundError: No module named 'qna_chatbot'` | The venv was built with an editable install, whose `.pth` points at a source tree the runtime stage does not copy | `uv sync` must use `--no-editable`; already set in the `python-deps` stage |
+| `ModuleNotFoundError: No module named 'qylo'` | The venv was built with an editable install, whose `.pth` points at a source tree the runtime stage does not copy | `uv sync` must use `--no-editable`; already set in the `python-deps` stage |
 | `failed to parse stage name "weights-"` | `BAKE_LLM_WEIGHTS` declared after a `FROM`, so it is stage-scoped and invisible to `FROM` | The `ARG` must stay above the first `FROM` |
 | `ENOSPC` during a CI build | Free-runner disk exhausted by the 6.5GB model | See the diagnostic ladder in `.github/workflows/docker.yml` |
 | Permission denied writing `--usagelog` | Bind-mount source created root-owned by Docker | `logs/` is committed with a `.gitkeep` so it exists with your ownership |

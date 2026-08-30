@@ -8,11 +8,11 @@
 # Usage examples (see README for granular details):
 # 
 # Ask against all supported files in `data/documents`:
-# uv run qna-chatbot "What is flogger and what logging features does it support?"
+# uv run qylo "What is flogger and what logging features does it support?"
 #
 # Use a different document folder or file:
-# uv run qna-chatbot "What does this document say?" --documents path\to\knowledge-base
+# uv run qylo "What does this document say?" --documents path\to\knowledge-base
 #
 # Ask something the knowledge base doesn't cover
-# uv run qna-chatbot "Who wrote the novel Moby Dick?"
+# uv run qylo "Who wrote the novel Moby Dick?"
 #

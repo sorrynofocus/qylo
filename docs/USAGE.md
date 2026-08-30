@@ -1,6 +1,8 @@
 # Usage
 
-Flags, the parameter walkthrough, telemetry, and error cases. Back to [README.md](../README.md).
+Flags, the parameter walkthrough, telemetry, and error cases. 
+
+Back to [README.md](../README.md) from here.
 
 ## Run
 
@@ -27,7 +29,7 @@ Longer reference for each flag, with an example and the edge cases people actual
 The natural-language question to ask, regardless of provider. Always quote it — especially on Windows, where `&`, `|`, and unescaped quotes inside the question can confuse `cmd.exe` before the CLI even sees them.
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?"
+uv run qylo "What is flogger and what logging features does it support?"
 ```
 
 **What if...**
@@ -40,8 +42,8 @@ uv run qna-chatbot "What is flogger and what logging features does it support?"
 Choose the knowledge base for this run: `--documents` scans a folder recursively for `.pdf`/`.md`/`.txt` files; `--doc` loads exactly one file. They're mutually exclusive (enforced by `argparse`, not application code). Omitting both falls back to the bundled `data/documents` folder.
 
 ```sh
-uv run qna-chatbot "What does this document say?" --documents path\to\knowledge-base
-uv run qna-chatbot "What does this file explain?" --doc path\to\README.md
+uv run qylo "What does this document say?" --documents path\to\knowledge-base
+uv run qylo "What does this file explain?" --doc path\to\README.md
 ```
 
 **What if...**
@@ -64,8 +66,8 @@ How many chunks the retrieval tool returns *per search* — default `4`. See ["T
 Execution is opt-in and layered: `--exe` alone executes a `CMD:` response; an `UNSAFE:` response additionally requires `--yolo`. `--yolo` by itself, without `--exe`, does nothing at all. Setting `CHATBOT_EXECUTE_COMMANDS=true` in `.env` (see [Configuration](SETUP.md#configuration)) is the always-on equivalent of passing `--exe` on every run; there's no `.env` equivalent of `--yolo`, so `UNSAFE:` execution always has to be asked for on the command line.
 
 ```sh
-uv run qna-chatbot "shutdown windows with a comment that the machine was software updated" --exe
-uv run qna-chatbot "shutdown windows with a comment that the machine was software updated" --exe --yolo
+uv run qylo "shutdown windows with a comment that the machine was software updated" --exe
+uv run qylo "shutdown windows with a comment that the machine was software updated" --exe --yolo
 ```
 
 **What if...**
@@ -82,7 +84,7 @@ uv run qna-chatbot "shutdown windows with a comment that the machine was softwar
 Swap the bundled `system_prompt.txt` for your own instructions file — useful for experimenting with the classification/grounding rules without editing the package.
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?" --system-prompt path\to\custom_prompt.txt
+uv run qylo "What is flogger and what logging features does it support?" --system-prompt path\to\custom_prompt.txt
 ```
 
 **What if...**
@@ -103,61 +105,61 @@ There's no universal "right" number, but as a rule of thumb: `1` is a practical 
 Ask against all supported files in `data/documents`:
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?"
+uv run qylo "What is flogger and what logging features does it support?"
 ```
 
 Use a different document folder or file:
 
 ```sh
-uv run qna-chatbot "What does this document say?" --documents path\to\knowledge-base
+uv run qylo "What does this document say?" --documents path\to\knowledge-base
 ```
 
 Load one documentation file:
 
 ```sh
-uv run qna-chatbot "What does this file explain?" --doc path\to\README.md
+uv run qylo "What does this file explain?" --doc path\to\README.md
 ```
 
 Ask something the knowledge base doesn't cover — the model falls back to a `GENERAL:` answer instead of forcing a bad citation:
 
 ```sh
-uv run qna-chatbot "Who wrote the novel Moby Dick?"
+uv run qylo "Who wrote the novel Moby Dick?"
 ```
 
 Retrieve more or fewer chunks per tool call (default is 4):
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?" -k 8
+uv run qylo "What is flogger and what logging features does it support?" -k 8
 ```
 
 Use a custom system prompt file instead of the bundled default:
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?" --system-prompt path\to\custom_prompt.txt
+uv run qylo "What is flogger and what logging features does it support?" --system-prompt path\to\custom_prompt.txt
 ```
 
 Execute a command response — grounded in `data/documents/win-shutdown.md`, this is the kind of internal-tool-command generation the safety contract exists for:
 
 ```sh
-uv run qna-chatbot "shutdown windows with a comment that the machine was software updated" --exe
+uv run qylo "shutdown windows with a comment that the machine was software updated" --exe
 ```
 
 A shutdown is system-changing, so expect the model to label it `UNSAFE:` rather than `CMD:` — execute it only when you explicitly accept the risk:
 
 ```sh
-uv run qna-chatbot "shutdown windows with a comment that the machine was software updated" --exe --yolo
+uv run qylo "shutdown windows with a comment that the machine was software updated" --exe --yolo
 ```
 
 Print a per-stage AI-usage summary after the answer:
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?" --usage
+uv run qylo "What is flogger and what logging features does it support?" --usage
 ```
 
 Also write one JSON line per telemetry event to a log file (defaults to `<today's date>-usage.log`) for cross-run comparison:
 
 ```sh
-uv run qna-chatbot "What is flogger and what logging features does it support?" --usage --usagelog
+uv run qylo "What is flogger and what logging features does it support?" --usage --usagelog
 ```
 
 ### AI-usage telemetry (`--usage` / `--usagelog`)
@@ -168,7 +170,7 @@ With `--usage`, the CLI prints a table with one row per pipeline stage — `inge
 
 **On what lands in a usage log.** Each logged event carries a short `preview` field containing only your question or the retrieval query — never system-prompt or retrieved-document text. This is enforced in code rather than merely intended: `preview` is taken from the human turn alone, and a run with an empty question (or any future entry point that invokes the agent without a human turn) produces an empty preview rather than falling back to the full message text. That fallback existed until 2026-08-05; see `TROUBLESHOOT.MD` under "Telemetry preview can fall back to system-prompt text" for the write-up. Full message text still feeds the token estimate and content hash, which never leave the local process as text.
 
-This is a separate, unrelated thing from the `[stage] [locality]` prefix now on every progress print (e.g. `[ingestion] [local] Scanning data\documents...`, `[call model] [cloud] Connecting to azure chat model...`) — those tags are always on, cost nothing to compute, and don't require `--usage`. See [AI-usage telemetry](../ARCHITECTURE.md#ai-usage-telemetry-two-instrumentation-layers-one-call-type) in `ARCHITECTURE.md` for the instrumentation mechanism and an important finding about what a "call" actually represents in this pipeline.
+This is a separate, unrelated thing from the `[stage] [locality]` prefix now on every progress print (e.g. `[ingestion] [local] Scanning data\documents...`, `[call model] [cloud] Connecting to azure chat model...`) — those tags are always on, cost nothing to compute, and don't require `--usage`. See [AI-usage telemetry](ARCHITECTURE.md#ai-usage-telemetry-two-instrumentation-layers-one-call-type) in `ARCHITECTURE.md` for the instrumentation mechanism and an important finding about what a "call" actually represents in this pipeline.
 
 ### Provider comparison (measured)
 
@@ -196,7 +198,7 @@ Scenarios that come from configuration or runtime state rather than any single C
 - **...the agent gets stuck searching the knowledge base and never produces an answer?** `RagAssistant` caps the tool-calling loop at 10 LangGraph steps (`DEFAULT_MAX_AGENT_STEPS`, `rag.py`) — if that's hit, you get a `GENERAL:`-style response explaining the agent didn't converge, instead of the CLI hanging. This isn't a hypothetical: see `TROUBLESHOOT.MD`'s "Runaway agent loop..." entry for a real, measured case that ran ~21 minutes and 5.36M billed tokens on a single question before this cap existed.
 - **...I set `CHATBOT_EXECUTE_COMMANDS=true` and forget about it?** Every run behaves as if `--exe` were passed, so any `CMD:` response executes immediately with no prompt. `--exe` on the command line is additive, not an override — there's no flag to turn execution back off for a single run, so unset the variable if you want the safe default back.
 - **...I set `CHATBOT_CHUNK_SIZE=abc` or a negative number?** `rag.py::etoi` raises `RuntimeError: CHATBOT_CHUNK_SIZE must be a positive whole number, got: abc` (same for `CHATBOT_CHUNK_OVERLAP`) during the ingestion stage, before the embedding model loads — a typo fails loudly instead of silently reverting to the default. Setting an overlap that isn't smaller than the chunk size fails the same way, with a message naming both variables.
-- **...`--usagelog` is passed without `--usage`?** Rejected immediately: `qna-chatbot: error: --usagelog requires --usage.` Nothing runs.
+- **...`--usagelog` is passed without `--usage`?** Rejected immediately: `qylo: error: --usagelog requires --usage.` Nothing runs.
 - **...I run the exact same question twice in a row?** Full re-scan, re-embedding, and a fresh model call happen both times — there's no cross-run cache (see `ARCHITECTURE.md`'s "Why in-memory, not persistent, vector store"). Expect similar latency both times, and — since the model's output isn't guaranteed deterministic — possibly different `--usage` numbers between the two runs, not identical ones.
 - **...I Ctrl+C mid-run while using `--usage`/`--usagelog`?** Nothing gets printed or logged for that run — `TelemetrySession` only persists data at the very end of a run that's allowed to finish; a killed process loses whatever was recorded so far. Any cost already incurred against your provider up to that point still happened, it's just not visible in the output.
-- **...I want to see every flag and its one-line description without leaving the terminal?** `uv run qna-chatbot --help`.
+- **...I want to see every flag and its one-line description without leaving the terminal?** `uv run qylo --help`.

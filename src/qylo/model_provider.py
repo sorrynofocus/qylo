@@ -44,8 +44,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from pydantic import SecretStr
 
-from qna_chatbot import string_table
-from qna_chatbot.telemetry import TelemetrySession, httpx_event_hooks
+from qylo import string_table
+from qylo.telemetry import TelemetrySession, httpx_event_hooks
 
 
 class ModelProvider(Enum):

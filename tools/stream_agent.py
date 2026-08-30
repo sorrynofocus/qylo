@@ -40,8 +40,8 @@ from langchain_core.messages import HumanMessage
 
 load_dotenv()
 
-from qna_chatbot.model_provider import build_chat_model
-from qna_chatbot.rag import (
+from qylo.model_provider import build_chat_model
+from qylo.rag import (
     DEFAULT_MAX_AGENT_STEPS,
     DEFAULT_RETRIEVAL_K,
     build_embeddings,
@@ -52,7 +52,7 @@ from qna_chatbot.rag import (
     split_documents,
     system_prompt,
 )
-from qna_chatbot.response_contract import ContractResponse
+from qylo.response_contract import ContractResponse
 
 
 def main() -> None:

@@ -13,6 +13,8 @@ wheels/
 .env
 .env.local
 
+# Claude/Codex coordination files
+docs/refactor/
 
 # Editor metadata
 # PyCharm
@@ -23,7 +25,7 @@ wheels/
 .idea/
 
 # Personal scratch notes, not part of the project's tracked docs
-learning.md
+/docs/LEARNING.md
 
 # Bicep compiled output (az bicep build artifact)
 infra/azure/*.json

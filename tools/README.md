@@ -6,7 +6,7 @@ and have no assertions about correctness beyond what they print (with one except
 noted below).
 
 They are not part of the package and are not installed by `uv sync` — they simply import
-`qna_chatbot` from the project environment.
+`qylo` from the project environment.
 
 ## Why these exist
 

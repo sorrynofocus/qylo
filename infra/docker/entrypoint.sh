@@ -1,24 +1,24 @@
 #!/bin/sh
 # Cwinters / US / Arizona / ThinkPad T15g Gen 1
 # 2026.08.07
-# Container entrypoint for the QnA-Chatbot image. Dispatches between the one-shot CLI,
+# Container entrypoint for the Qylo image. Dispatches between the one-shot CLI,
 # a batched run over a file of questions, and the bundled llama.cpp server.
 #
 # Purpose:
-# The image ships two executables that matter (qna-chatbot and llama-server) and one
+# The image ships two executables that matter (qylo and llama-server) and one
 # convenience mode (batch). Rather than publishing separate images or making callers
 # remember --entrypoint, this script routes on the first argument.
 #
 # Usage examples (see infra/docker/README.md for granular details):
 #
 # Ask one question (the default path - anything unrecognized is passed straight through):
-# docker run --rm --env-file .env qna-chatbot "What is flogger?"
+# docker run --rm --env-file .env qylo "What is flogger?"
 #
 # Ask several, one per line, from a mounted file:
-# docker run --rm --env-file .env -v ./questions.txt:/q.txt qna-chatbot batch /q.txt
+# docker run --rm --env-file .env -v ./questions.txt:/q.txt qylo batch /q.txt
 #
 # Run the local model server instead of the CLI:
-# docker run --rm -p 8080:8080 qna-chatbot serve
+# docker run --rm -p 8080:8080 qylo serve
 
 set -eu
 
@@ -121,7 +121,7 @@ batch() {
         total=$((total + 1))
         echo "--- [${total}] ${question}"
 
-        if ! qna-chatbot "${question}"; then
+        if ! qylo "${question}"; then
             failures=$((failures + 1))
             echo "entrypoint: question failed: ${question}" >&2
         fi
@@ -144,7 +144,7 @@ case "${1:-}" in
         ;;
     *)
         # Default: hand everything to the CLI unchanged, so every documented
-        # qna-chatbot flag works as-is against the container.
-        exec qna-chatbot "$@"
+        # qylo flag works as-is against the container.
+        exec qylo "$@"
         ;;
 esac

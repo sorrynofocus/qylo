@@ -1,6 +1,6 @@
 # Cwinters / US / Arizona / ThinkPad T15g Gen 1
 # 2026.08.07
-# Compose definition for the QnA-Chatbot container and its optional llama.cpp sibling.
+# Compose definition for the Qylo container and its optional llama.cpp sibling.
 #
 # Purpose:
 # Wires the CLI container to a local model server without anyone having to remember
@@ -43,7 +43,7 @@ services:
         # Default build bakes the Qwen weights in (~8GB) for a fully offline image.
         # Override to 0 for the ~1.5GB Azure-only build.
         BAKE_LLM_WEIGHTS: ${BAKE_LLM_WEIGHTS:-1}
-    image: qna-chatbot:latest
+    image: qylo:latest
     env_file:
       - ../../.env
     environment:
@@ -76,7 +76,7 @@ services:
       dockerfile: infra/docker/Dockerfile
       args:
         BAKE_LLM_WEIGHTS: ${BAKE_LLM_WEIGHTS:-1}
-    image: qna-chatbot:latest
+    image: qylo:latest
     command: ["serve"]
     ports:
       - "8080:8080"

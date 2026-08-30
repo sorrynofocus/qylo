@@ -1,4 +1,4 @@
-# Infra: Azure OpenAI deployment for QnA-Chatbot
+# Infra: Azure OpenAI deployment for Qylo
 
 This is a declarative Bicep template and Python wrapper to provision the Azure OpenAI `gpt-5-nano` model deployment that this app uses. This is a modern way to deploy Azure resources, instead of manually clicking through the Azure Portal or Foundry UI.
 

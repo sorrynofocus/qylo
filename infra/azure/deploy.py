@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Cwinters / US / Arizona / ThinkPad T15g Gen 1
 # 2026.07.19
-# Thin az CLI wrapper to (re)provision/preview the QnA-Chatbot's Azure OpenAI resource via Bicep.
+# Thin az CLI wrapper to (re)provision/preview Qylo's Azure OpenAI resource via Bicep.
 # This resource provisions the Azure OpenAI model, including the necessary deployment and 
-# configuration for the QnA-Chatbot.
+# configuration for Qylo.
 #
 # Purpose:
 # Orchestrates `az login` (if needed) plus `az deployment sub validate/what-if/create`

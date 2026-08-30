@@ -44,8 +44,8 @@ infra/docker/docker-compose.yml
 
 # Project docs not consumed by the build. README.md is deliberately NOT excluded:
 # pyproject.toml declares readme = "README.md" and the uv build fails without it.
-ARCHITECTURE.md
-TROUBLESHOOT.MD
+docs/ARCHITECTURE.md
+docs/TROUBLESHOOT.MD
 CLAUDE.md
 AGENTS.md
-LEARNING.md
+docs/LEARNING.md

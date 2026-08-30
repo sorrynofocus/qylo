@@ -95,20 +95,6 @@ Worth one measured run each rather than guessing.
 
 ---
 
-## Naming
-
-### Finish the rename to `qylo`
-
-`README.md:3` promises the project "will take that name soon". That means renaming
-`src/qna_chatbot/` to `src/qylo/`, the `[project]` name, the console-script entry point, and every
-`uv run qna-chatbot ...` example across `README.md`, `docs/SETUP.md`, `docs/USAGE.md`, `CLAUDE.md`
-and `AGENTS.md` — roughly 158 occurrences across ~25 files. **Do it as its own commit with nothing
-else in it.**
-
-The `toolbot-cli` mention in `README.md:3` is deliberate and stays; it documents naming history.
-
----
-
 ## Docs
 
 - **`TROUBLESHOOT.MD` owes two dated entries.** (1) The naming decision, including the rejected

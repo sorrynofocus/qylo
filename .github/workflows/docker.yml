@@ -1,6 +1,6 @@
 # Cwinters / US / Arizona / ThinkPad T15g Gen 1
 # 2026.08.07
-# Builds the QnA-Chatbot container image and smoke-tests it.
+# Builds the Qylo container image and smoke-tests it.
 #
 # Purpose:
 # Prove the image still builds from a clean checkout and that the resulting binaries and
@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 90
 
     env:
-      IMAGE: qna-chatbot:ci
+      IMAGE: qylo:ci
       # Default build bakes the weights. workflow_dispatch can override to 0.
       BAKE_LLM_WEIGHTS: ${{ github.event.inputs.bake_llm_weights || '1' }}
 
@@ -147,8 +147,8 @@ jobs:
           docker run --rm \
             -e PYTHONPYCACHEPREFIX=/tmp/pycache \
             --entrypoint python ${{ env.IMAGE }} -c "
-          import compileall, pathlib, sys, qna_chatbot
-          pkg = pathlib.Path(qna_chatbot.__file__).parent
+          import compileall, pathlib, sys, qylo
+          pkg = pathlib.Path(qylo.__file__).parent
           print('compiling', pkg)
           sys.exit(0 if compileall.compile_dir(str(pkg), quiet=1, force=True) else 1)
           "

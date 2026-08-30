@@ -1,6 +1,6 @@
 # qylo
 
-> **Naming.** The repo is now `qylo`, and the project will take that name soon. `qna-chatbot` (the package name and CLI command) and the earlier working title `toolbot-cli` are the old names. **For now, treat `qna-chatbot` as the project** — every `uv run qna-chatbot ...` example below is current, not stale. Renaming the package itself would touch `pyproject.toml`, the console-script entry point, and every doc's example commands, so it's deliberately deferred.
+> **Naming.** Qylo grew out of an earlier prototype named `qna-chatbot`; the working title before that was `toolbot-cli`. The package and CLI were renamed to `qylo` on 2026-08-29, so every `uv run qylo ...` example below is current. The old names are kept on purpose in `docs/TROUBLESHOOT.MD` (append-only history) and in the dated "Landed" entries of `CLAUDE.md` / `AGENTS.md`, which record measurements taken against the old image tag.
 
 A local Retrieval-Augmented Generation (RAG) CLI assistant for querying a folder of PDF/Markdown/TXT documentation built for internal CLI-tool docs, where remembering every tool's exact flags is the actual problem. It ingests documents with HuggingFace embeddings into an in-memory vector store, then hands a chat model (Azure OpenAI or a local OpenAI-compatible server) a **retrieval tool** rather than pre-fetched context: the model decides for itself whether and how many times to search the knowledge base before answering, instead of always retrieving up front. Answers are combined with a small safety contract so the same assistant can also propose — and, opt-in, execute — CLI commands grounded in the docs.
 
@@ -23,7 +23,7 @@ For local work, I've decided NOT to use the GPU, but rather CPU. This research w
 
 Internal CLI tools accumulate flags faster than anyone can remember them. The documentation usually exists — it's just spread across a folder of READMEs nobody rereads. This is an attempt at the obvious fix: point a model at that folder and ask in plain English, then let it go one step further and *compose the command* for you, with a safety gate in front of actually running it.
 
-It is also, deliberately, a learning project. The code favors being readable over being clever, uses `argparse` and plain console output instead of a TUI framework, and keeps each stage visible rather than hidden behind abstraction. Where a design decision was reversed, the reasoning is recorded in `TROUBLESHOOT.MD` rather than quietly deleted.
+It is also, deliberately, a learning project. The code favors being readable over being clever, uses `argparse` and plain console output instead of a TUI framework, and keeps each stage visible rather than hidden behind abstraction. Where a design decision was reversed, the reasoning is recorded in `docs/TROUBLESHOOT.MD` rather than quietly deleted.
 
 ### What kind of RAG this is
 
@@ -66,7 +66,7 @@ Known and deliberate, not oversights:
 - **No persistence.** Every run rescans, re-chunks, re-embeds. Fine for a folder of READMEs; unworkable for a large corpus. There is no cache, no incremental update, and no index on disk.
 - **Retrieval quality is basic.** Similarity search only. A question phrased differently from the documentation may miss, and `-k` is the only tuning knob exposed.
 - **Executed commands are not sandboxed or allowlisted.** `cli.py::run_command` runs through the system shell with `shell=True`. The safety model is the `CMD`/`UNSAFE` contract plus explicit `--exe`/`--yolo` opt-in — there is no allowlist, no deny-pattern matching, and no audit log. This is a known gap, documented rather than hidden.
-- **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `TROUBLESHOOT.MD`'s "Two open gaps."
+- **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `docs/TROUBLESHOOT.MD`'s "Two open gaps."
 - **Local inference is slow without a GPU.** ~4.9 tok/s on the hardware above means minutes per answer, not seconds. See [Provider comparison](docs/USAGE.md#provider-comparison-measured).
 - **Token estimates are approximate.** `cl100k_base` is applied uniformly across providers; the provider-reported counts are the billing truth.
 - **No automated test suite.** Verification is smoke-test style.
@@ -77,7 +77,7 @@ Reasonable expectations: this answers questions about a folder of documentation 
 
 ```text
 .
-├── src/qna_chatbot/
+├── src/qylo/
 │   ├── cli.py                 # argparse entry point, orchestration, execution-safety gate
 │   ├── rag.py                  # ingestion pipeline + agentic RagAssistant (retrieval tool + create_agent)
 │   ├── response_contract.py    # ANS/GENERAL/CMD/UNSAFE parser
@@ -89,12 +89,13 @@ Reasonable expectations: this answers questions about a folder of documentation 
 │   ├── azure/                   # Bicep template + deploy.py to (re)provision the Azure OpenAI resource
 │   └── docker/                  # Dockerfile + compose to run the app with no host install
 ├── docs/
+│   ├── BACKLOG.md                 # Open work that has YET not started!
 │   ├── SETUP.md                 # install, provider choice, .env reference
-│   └── USAGE.md                 # flags, examples, telemetry, error cases
-├── ARCHITECTURE.md              # concepts, design rationale, full call-flow diagram
+│   ├── USAGE.md                 # flags, examples, telemetry, error cases
+│   ├── ARCHITECTURE.md          # concepts, design rationale, full call-flow diagram
+│   └── TROUBLESHOOT.MD          # dated debugging log / known gotchas
 ├── CLAUDE.md                    # Claude Code operating instructions
 ├── AGENTS.md                    # cross-tool agent instructions (Codex, etc.)
-├── TROUBLESHOOT.MD              # debugging log / known gotchas
 ├── .env.example                 # config template — copy to .env and fill in
 └── pyproject.toml
 ```
@@ -103,8 +104,8 @@ Reasonable expectations: this answers questions about a folder of documentation 
 
 > For the full function-by-function call sequence of one invocation
 > (diagram + numbered walkthrough), see
-> [Application workflow](ARCHITECTURE.md#application-workflow-current) in
-> `ARCHITECTURE.md`.
+> [Application workflow](docs/ARCHITECTURE.md#application-workflow-current) in
+> `docs/ARCHITECTURE.md`.
 
 This is "agentic RAG," not the more common "naive RAG" (always retrieve top-k, stuff into the prompt, generate). `RagAssistant` (in `rag.py`) builds one retrieval tool, `retrieve_document_context`, bound to the in-memory vector store, and hands it to a `langchain.agents.create_agent` tool-calling loop along with the chat model. For each question:
 
@@ -126,7 +127,7 @@ COMMAND: proposed command for an unsafe request
 
 Command execution is opt-in. `--exe` executes `CMD:` responses. `UNSAFE:` responses are blocked unless both `--exe` and `--yolo` are provided. This keeps the safety decision separate from the model's answer. `GENERAL:` responses are treated the same as `ANS:` for execution purposes — they never run anything, regardless of `--exe`/`--yolo`.
 
-The final answer above is schema-enforced, not just a label the model is trusted to write correctly as free text: `RagAssistant.__init__` passes `response_format=ToolStrategy(schema=ContractResponse)` to `create_agent` (`rag.py`), so `kind`/`content`/`command` come back as a validated `ContractResponse` (`response_contract.py`) whenever the backend produces one. The old text-parsing (`parse_model_response`) is kept as a fallback for backends that don't produce a forced structured response, not removed. A retrieved doc's own `Safety: unsafe` tag also wins deterministically over the model's own classification — if that tag shows up in this turn's retrieved context, a `CMD` verdict is force-upgraded to `UNSAFE` in code, regardless of what the model concluded. See `TROUBLESHOOT.MD` for the measured reliability numbers behind both changes.
+The final answer above is schema-enforced, not just a label the model is trusted to write correctly as free text: `RagAssistant.__init__` passes `response_format=ToolStrategy(schema=ContractResponse)` to `create_agent` (`rag.py`), so `kind`/`content`/`command` come back as a validated `ContractResponse` (`response_contract.py`) whenever the backend produces one. The old text-parsing (`parse_model_response`) is kept as a fallback for backends that don't produce a forced structured response, not removed. A retrieved doc's own `Safety: unsafe` tag also wins deterministically over the model's own classification — if that tag shows up in this turn's retrieved context, a `CMD` verdict is force-upgraded to `UNSAFE` in code, regardless of what the model concluded. See `docs/TROUBLESHOOT.MD` for the measured reliability numbers behind both changes.
 
 ### Grounding a tool's safety in its own doc
 
@@ -145,8 +146,8 @@ Embeds Message tags/data/info at the end of any file.
 
 - [docs/SETUP.md](docs/SETUP.md) — install, provider choice, `.env` reference
 - [docs/USAGE.md](docs/USAGE.md) — flags, examples, telemetry, error cases
-- [ARCHITECTURE.md](ARCHITECTURE.md) — concepts, design rationale, call-flow and sequence diagrams
-- [TROUBLESHOOT.MD](TROUBLESHOOT.MD) — dated debugging log and known gotchas
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — concepts, design rationale, call-flow and sequence diagrams
+- [docs/TROUBLESHOOT.MD](docs/TROUBLESHOOT.MD) — dated debugging log and known gotchas
 - [docs/BACKLOG.md](docs/BACKLOG.md) — open work: known gaps, planned changes, and why they matter
 
 ## Build
@@ -159,12 +160,12 @@ The package artifact will be written to `dist`.
 
 ## Verification
 
-No automated test suite exists yet; verification is smoke-test style (see `TROUBLESHOOT.MD`):
+No automated test suite exists yet; verification is smoke-test style (see `docs/TROUBLESHOOT.MD`):
 
 ```sh
 python -m compileall src
 uv lock
-uv run qna-chatbot --help
+uv run qylo --help
 ```
 
 ## References
