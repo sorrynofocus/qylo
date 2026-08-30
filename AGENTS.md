@@ -1,6 +1,8 @@
 # AGENTS.md
 
-This file provides guidance to OpenAI Codex and other AGENTS.md-reading tools when working with code in this repository.
+Operating instructions for coding agents working in this repository (OpenAI Codex, Cursor,
+GitHub Copilot, and any other AGENTS.md-reading tool). Claude Code reads this file too —
+`CLAUDE.md` is a one-line pointer at it, so there is only one set of instructions to keep current.
 
 ## Project overview
 
@@ -12,32 +14,52 @@ Q: `Find all gpt turbo models in westus region in Azure, in detailed table`
 
 A: `az cognitiveservices model list --location westus --query "[?contains(name, 'turbo')].{name:name,version:version}" -o table`
 
-Command execution is disabled by default. Setting `CHATBOT_EXECUTE_COMMANDS=true`, or passing `--exe` for a single invocation, enables execution of `CMD:` responses. `UNSAFE:` responses additionally require `--yolo`. See `CLAUDE.md` for the full ANS/CMD/UNSAFE response contract and how it's implemented.
+Command execution is disabled by default. Setting `CHATBOT_EXECUTE_COMMANDS=true`, or passing `--exe` for a single invocation, enables execution of `CMD:` responses. `UNSAFE:` responses additionally require `--yolo`. See [Guardrails](#guardrails-dont-relax-without-being-asked) for the full ANS/GENERAL/CMD/UNSAFE response contract and how it's implemented.
 
-## Setup and build commands
+## Setup, build, run
 
-This project uses the `uv` package manager. Building uses `pyproject.toml` to determine the build configuration.
+This project uses the `uv` package manager; `pyproject.toml` drives the build configuration.
+Start with `README.md` for the overview; `docs/SETUP.md` has full setup/install detail and `docs/USAGE.md` has every flag and example. Below are quick start commands during development/testing:
 
-### Setup commands
+```sh
+uv venv
+uv sync
+.venv\Scripts\activate        # Windows
+```
 
-1. **Create virtual environment and install dependencies:**
-   ```sh
-   uv venv
-   uv sync
-   ```
+Run a question against the default `data/documents` folder:
 
-   Activate the virtual environment to use the tool:
-    ```sh
-    .venv\Scripts\activate
-    ```
+```sh
+uv run qylo "What is flogger and what logging features does it support?"
+```
 
-2. **Build as an application:**
+Other useful flags: `--documents <folder>` (custom folder), `--doc <file>` (single file), `-k <n>` (retrieved chunk count, default 4), `--exe` (execute a `CMD:` response), `--yolo` (also execute `UNSAFE:` responses, only combined with `--exe`), `--system-prompt <file>` (custom system prompt file instead of the bundled default).
 
-    ```sh
-    uv build .
-    ```
+Build the package:
 
-    See README's [Build](README.md#build) section for installing the built wheel.
+```sh
+uv build .
+```
+
+See README's [Build](README.md#build) section for installing the built wheel.
+
+No automated test suite exists yet. Verification is currently manual/smoke-test style (see `docs/TROUBLESHOOT.MD`):
+
+```sh
+python -m compileall src
+uv lock
+uv run qylo --help
+```
+
+Docker and Azure provisioning both live under `infra/` — see `infra/README.md` for which is which.
+
+## Configuration (.env)
+
+Model provider is chosen via `CHATBOT_MODEL_PROVIDER=azure|local` (see `.env.example`; full setup/install steps are in `docs/SETUP.md`).
+
+- Azure: `AZURE_OPENAI_ENDPOINT` (resource root only — do **not** append `/openai/v1`), `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_CHAT_DEPLOYMENT`, `AZURE_OPENAI_API_VERSION`. Newer models (e.g. `gpt-5-nano`) reject an explicit `temperature` other than the default.
+- Local: `LOCAL_OPENAI_BASE_URL`, `LOCAL_MODEL_NAME`, optional `LOCAL_OPENAI_API_KEY` — points at a running llama.cpp server.
+- `CHATBOT_EXECUTE_COMMANDS=true` is an env-var equivalent of passing `--exe`.
 
 ## Repository map
 
@@ -48,21 +70,22 @@ Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE
 - Type-hinted signatures (`from __future__ import annotations`, PEP 604 unions).
 - `snake_case` functions/variables/modules; `PascalCase` classes/dataclasses.
 - PEP 8; lines under 120 chars; prefer f-strings.
-- No comments unless the *why* is non-obvious.
+- Add comments with descriptions and parameter explanations as in summaries in C#. Shorter functions that are obvious do not need comments.
 - Reuse existing functions/utilities over new abstractions; no speculative features.
 - User-facing and error strings live in `string_table.py`, one section per module (`# --- rag.py ---`, etc.) — new or changed strings go there as named constants (`MSG_*`/`ENV_*`), not inline literals.
 
-## File headers (planned — not yet applied to existing files)
+## File headers
 
-New Python files should start with a one-line purpose comment plus `# Author: <name> | Date: YYYY-MM-DD`. Do not retrofit this onto existing files as incidental cleanup — new files only, or when explicitly asked for a header pass.
+- Follow `.github/src_header_template.md` for new Python files for header information.
+- Do not retrofit this onto existing files as incidental cleanup, new files only, or when explicitly asked for a header pass.
 
 ## Git
 
-Do not stage files or create commits unless the user explicitly asks.
+- Do not stage files or create commits unless the user explicitly asks.
 
 ## Pull requests
 
-Follow `.github/pull_request_template.md`. Blank `Description` is not accepted — it feeds release notes. `Details`/`JIRA`/`Related` are optional.
+- Follow `.github/pull_request_template.md`. Blank `Description` is not accepted; it feeds release notes. `Details`/`JIRA`/`Related` are optional.
 
 ## Guardrails (don't relax without being asked)
 
@@ -96,7 +119,7 @@ This project is built and maintained across multiple models over time (Claude So
 
 ## Testing
 
-There is no automated test suite yet. Verify changes by running the CLI against `data/documents` and checking that answers stay grounded with citations; see `docs/TROUBLESHOOT.MD` for known failure modes and `CLAUDE.md` for smoke-test commands.
+There is no automated test suite yet. Verify changes by running the CLI against `data/documents` and checking that answers stay grounded with citations; see `docs/TROUBLESHOOT.MD` for known failure modes and the smoke-test commands under [Setup, build, run](#setup-build-run).
 
 ## Security considerations
 

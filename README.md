@@ -94,8 +94,8 @@ Reasonable expectations: this answers questions about a folder of documentation 
 │   ├── USAGE.md                 # flags, examples, telemetry, error cases
 │   ├── ARCHITECTURE.md          # concepts, design rationale, full call-flow diagram
 │   └── TROUBLESHOOT.MD          # dated debugging log / known gotchas
-├── CLAUDE.md                    # Claude Code operating instructions
-├── AGENTS.md                    # cross-tool agent instructions (Codex, etc.)
+├── AGENTS.md                    # agent operating instructions (Codex, Cursor, Copilot, Claude Code)
+├── CLAUDE.md                    # one-line pointer that imports AGENTS.md
 ├── .env.example                 # config template — copy to .env and fill in
 └── pyproject.toml
 ```
