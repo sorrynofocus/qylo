@@ -146,7 +146,7 @@ The `.env` equivalent of passing `--exe` on every run: a `CMD:` response execute
 
 Both are optional — leave them out (or commented, as above) and the shown defaults apply. The units are **characters, not tokens**. `CHATBOT_CHUNK_OVERLAP` is how much text two adjacent chunks share, so a sentence straddling a chunk boundary still appears whole in at least one chunk; it must be smaller than `CHATBOT_CHUNK_SIZE`, and both must be positive whole numbers. Raise the chunk size for long, continuous prose where the answer spans several paragraphs; lower it for short reference/flag docs, where tighter chunks retrieve more precisely and an oversized chunk just drags unrelated flags along with the one you asked about. This is a different knob from `-k`, which is a CLI flag for how many chunks come back per search — see ["Tuning `-k`"](USAGE.md#tuning--k).
 
-The selected provider is built by `ModelProvider` in `model_provider.py`. `rag.py` receives a normal LangChain chat model and does not need to know whether the model is Azure-hosted or local.
+The selected provider is built by `ModelProvider` in `model_provider.py`. `assistant.py` receives a normal LangChain chat model and does not need to know whether the model is Azure-hosted or local.
 
 To (re)provision the Azure OpenAI resource itself declaratively instead of via the Portal, see [infra/azure/README.md](../infra/azure/README.md).
 

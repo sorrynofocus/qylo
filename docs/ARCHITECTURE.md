@@ -49,7 +49,7 @@ I chose to do this because I stumbled on another naive rag project using langcha
 
 ### Naive RAG → Agentic RAG
 
-This project started as **naive RAG** (retrieve-then-read): always fetch the top-`k` chunks (a shortlist of the chunks scoring closest to the query) up front and stuff them into the prompt, whether or not they're actually relevant to the question. It has since evolved into **agentic RAG**: the model is handed a `retrieve_document_context` tool (`rag.py::build_retrieval_tool`) inside a `langchain.agents.create_agent` tool-calling loop, and decides for itself whether to search at all, and whether to refine the query and search again, before writing a final answer. See "Application workflow" below for the exact call sequence.
+This project started as **naive RAG** (retrieve-then-read): always fetch the top-`k` chunks (a shortlist of the chunks scoring closest to the query) up front and stuff them into the prompt, whether or not they're actually relevant to the question. It has since evolved into **agentic RAG**: the model is handed a `retrieve_document_context` tool (`retrieval.py::build_retrieval_tool`) inside a `langchain.agents.create_agent` tool-calling loop, and decides for itself whether to search at all, and whether to refine the query and search again, before writing a final answer. See "Application workflow" below for the exact call sequence.
 
 One question is therefore not one model call. The system prompt asks the model to classify intent *and* produce the final `ANS`/`GENERAL`/`CMD`/`UNSAFE`-shaped answer in whichever iteration of the loop turns out to be its last, and every iteration before that is the same kind of chat-completion request with a tool result appended to the message history. So a question costs exactly one model call if the model answers directly, or 2+ if it calls `retrieve_document_context` first — and because each additional call resends the whole growing history, a 2-call turn sends the system prompt bytes twice, not once.
 
@@ -64,7 +64,7 @@ Hybrid RAG (keyword + vector search) / Reranked RAG                  → not nee
 
 ### Chunking and top `-k`
 
-Documents are split with `RecursiveCharacterTextSplitter` using a default chunk size of 1000 characters and a default overlap of 200 (`DEFAULT_CHUNK_SIZE`/`DEFAULT_CHUNK_OVERLAP`, `rag.py`). Those are defaults, not fixed constants: `split_documents()` takes both as optional keyword arguments and, when they're left as `None` (which is what `cli.py` does), resolves `CHATBOT_CHUNK_SIZE`/`CHATBOT_CHUNK_OVERLAP` from `.env` via `etoi()` (an `atoi`-style env-string-to-int reader for all you C lovers out there!) before falling back to the defaults -so chunking can be tuned per-machine without touching code, while an explicit argument still wins over `.env`. A non-integer, zero, or negative value raises rather than silently reverting to the default, and an overlap that isn't smaller than the chunk size raises a message naming both variables. 
+Documents are split with `RecursiveCharacterTextSplitter` using a default chunk size of 1000 characters and a default overlap of 200 (`DEFAULT_CHUNK_SIZE`/`DEFAULT_CHUNK_OVERLAP`, `settings.py`). Those are defaults, not fixed constants: `split_documents()` takes both as optional keyword arguments and, when they're left as `None` (which is what `cli.py` does), resolves `CHATBOT_CHUNK_SIZE`/`CHATBOT_CHUNK_OVERLAP` from `.env` via `settings.py::positive_int_from_env()` (an `atoi`-style env-string-to-int reader for all you C lovers out there!) before falling back to the defaults -so chunking can be tuned per-machine without touching code, while an explicit argument still wins over `.env`. A non-integer, zero, or negative value raises rather than silently reverting to the default, and an overlap that isn't smaller than the chunk size raises a message naming both variables.
 
 The retrieval tool then asks the vector store for the `k` nearest chunks per call (`-k`, default 4). There's no hard universal max for `k`, but as a rule of thumb: 1 is a floor, 3–10 is normal, 10–25 is "large-doc experiment" territory. Pushing `k` far beyond that floods the prompt, raises cost/latency, and tends to confuse rather than help the answer. For very large corpora the fix is better chunking, metadata filters, or reranking after retrieval, not just a bigger `k`. For this prototype, I chose a small default `k` (4) due to my small corpus of CLI docs and relative small prompts. 
 
@@ -127,7 +127,7 @@ The measured numbers behind all of this are in `TROUBLESHOOT.MD`.
 
 ### Centralized strings (`string_table.py`)
 
-Every user-facing and error string used by `cli.py`, `rag.py`, `model_provider.py`, and `response_contract.py` is a named constant in `string_table.py`, grouped by the module that uses it (`# --- rag.py ---`, etc. to provide mapping), not an inline literal. This exists so strings can be revised, localized, or audited in one place instead of hunted across four files. When adding or changing a message, add or edit the constant there and import it, don't inline a new literal.
+Every user-facing and error string in the package is a named constant in `string_table.py`, grouped by the module that uses it (`# --- documents.py ---`, `# --- execution.py ---`, etc. to provide mapping, in request-flow order), not an inline literal. This exists so strings can be revised, localized, or audited in one place instead of hunted across nine files. When adding or changing a message, add or edit the constant there and import it, don't inline a new literal.
 
 String tables are quite important and most don't use it. I did in my early career because of enterprise application development (mostly for localization). I'm trying my best to do more of it these days. String sprinkling is a bad practice. 
 
@@ -138,7 +138,7 @@ Deliberately deferred, not oversights. Remember, I had to get it working first:
 - CI/CD pipeline wiring: a first GitHub Actions workflow exists (`.github/workflows/docker.yml`) but is unverified until the repo is pushed. Prod testing is still deferred.
 - Vector-store persistence across invocations (Chroma looks promising)
 - Pinning one "recommended" local LLM (I need to try a few models, including less quality ones)
-- Command execution (`cli.py::run_command`) has no allowlist/deny-list/audit logging yet... a known, intentional gap, not something to silently patch.
+- Command execution (`execution.py::run_command`) has no allowlist/deny-list/audit logging yet... a known, intentional gap, not something to silently patch.
 - Better CLI parsing (I always use Click)
 - Better printing (Rich is a great option)
 - Instead of a single .env file, I may write an .INI or JSON config file for multiple profiles (local/cloud)
@@ -151,32 +151,34 @@ This is agentic RAG, not naive RAG: retrieval is no longer a fixed step (it was 
 
 ```mermaid
 flowchart TD
-    A["main() — cli.py"] --> B["parse_args() — cli.py"]
-    B --> C["get_model_provider() — model_provider.py\n(printed; called again later before build_chat_model)"]
-    C --> D["scan_document_paths(source_path) — rag.py"]
-    D --> E["load_documents(paths) → load_document(path) per file — rag.py"]
-    E --> F["split_documents(docs) — rag.py\n(chunk size/overlap from .env or defaults)"]
-    F --> G["build_embeddings() — rag.py\n(HuggingFaceEmbeddings, all-MiniLM-L6-v2)"]
-    G --> H["build_vectors(chunks, embeddings) — rag.py\n(InMemoryVectorStore, rebuilt every run)"]
+    A["main() — cli.py"] --> B["parse_args() — cli.py\n(defaults from settings.py)"]
+    B --> C["get_model_provider() — model_provider.py\n(resolved and printed exactly once)"]
+    C --> BA["build_assistant(source, k, prompt) — cli.py\n(defers every heavy import below)"]
+    BA --> D["scan_document_paths(source_path) — documents.py"]
+    D --> E["load_documents(paths) → load_document(path) per file — documents.py"]
+    E --> F["split_documents(docs) — documents.py\n(chunk size/overlap from .env or settings.py defaults)"]
+    F --> G["build_embeddings() — retrieval.py\n(HuggingFaceEmbeddings, all-MiniLM-L6-v2)"]
+    G --> H["build_vectors(chunks, embeddings) — retrieval.py\n(InMemoryVectorStore, rebuilt every run)"]
     H --> I["build_chat_model() — model_provider.py"]
     I --> I1["build_azure_chat_model() or build_local_chat_model()\n(+ env_required() for missing .env values)"]
-    I1 --> J["RagAssistant(vector_store, model, retrieval_k) — rag.py\n__init__ builds build_retrieval_tool() + create_agent(...)"]
+    I1 --> J["RagAssistant(vector_store, model, retrieval_k) — assistant.py\n__init__ builds build_retrieval_tool() + create_agent(...)"]
     J --> K["assistant.answer(question)\nagent.invoke({messages: [question]}, config)"]
     K --> K1{"agent node: does the model want to call a tool?"}
-    K1 -- "tool_calls present" --> K2["retrieve_document_context(query) — rag.py\nvector_store.similarity_search() → context_from_document() per chunk"]
+    K1 -- "tool_calls present" --> K2["retrieve_document_context(query) — retrieval.py\nsimilarity_search() → context_from_document() → format_retrieval_results()"]
     K2 --> K3["ToolMessage appended → agent node runs again\n(may loop; model can refine the query)"]
     K3 --> K1
     K1 -- "no more tool_calls" --> L["final agent result\n(result['structured_response'], result['messages'])"]
-    L --> M{"structured_response populated?\n(ContractResponse via ToolStrategy — rag.py __init__)"}
+    L --> M{"structured_response populated?\n(ContractResponse via ToolStrategy — assistant.py __init__)"}
     M -- "yes" --> M2["contract_response_to_model_response() — response_contract.py"]
     M -- "no (None)" --> M1["parse_model_response(raw AIMessage) — response_contract.py\ntext_after_label() / parse_unsafe_body() fallback"]
     M2 --> M3
     M1 --> M3
-    M3["deterministic Safety: unsafe override — RagAssistant.answer() (rag.py)\nCMD → UNSAFE if a retrieved ToolMessage contains '(Safety: unsafe)'"]
-    M3 --> N["print_model_response(response) — cli.py"]
+    M3["deterministic Safety: unsafe override — RagAssistant.answer() (assistant.py)\nCMD → UNSAFE if a retrieved ToolMessage contains '(Safety: unsafe)'"]
+    M3 --> N0["normalize_command_for_shell(command) — execution.py\n(Windows only, the single normalization point)"]
+    N0 --> N["print_model_response(response) — console.py"]
     N --> O{"--exe or CHATBOT_EXECUTE_COMMANDS=true?"}
     O -- "no" --> P["process exit 0"]
-    O -- "yes" --> Q["apply_exe_request(response, yolo) — cli.py"]
+    O -- "yes" --> Q["apply_exe_request(response, yolo) — execution.py"]
     Q --> Q1{"response.kind\n(match/case statement)"}
     Q1 -- "ANS or GENERAL" --> Q2["print 'Nothing was run.' — never executes"]
     Q1 -- "CMD" --> Q3["run_command(command) — subprocess.run(shell=True)"]
@@ -191,12 +193,12 @@ flowchart TD
 Plain-text version of the same path, if Mermaid chart doesn't render:
 
 1. `main()` parses args, then calls `load_dotenv()` before anything reads an env var — so `.env` values (`CHATBOT_MODEL_PROVIDER`, `CHATBOT_EXECUTE_COMMANDS`, the `CHATBOT_CHUNK_*` settings) are visible to everything downstream, not just to `build_chat_model()`, which calls it again harmlessly later. It then eagerly announces the chat provider (`get_model_provider()`) before the slow imports.
-2. Lazy-imports `rag.py` (keeps `--help` fast), then runs the ingestion pipeline: `scan_document_paths` → `load_documents`/`load_document` → `split_documents` → `build_embeddings` → `build_vectors`.
+2. Calls `build_assistant()` (still in `cli.py`), which lazy-imports `documents.py`, `retrieval.py` and `assistant.py` (keeps `--help` fast), then runs the ingestion pipeline: `scan_document_paths` → `load_documents`/`load_document` → `split_documents` (`documents.py`) → `build_embeddings` → `build_vectors` (`retrieval.py`).
 3. Builds the chat model (`build_chat_model` → `build_azure_chat_model`/`build_local_chat_model`, reading `.env` via `env_required`), then constructs `RagAssistant` directly (plain constructor — no factory classmethods). `RagAssistant.__init__` builds a `retrieve_document_context` tool bound to that instance's vector store/`retrieval_k` (`build_retrieval_tool()`) and compiles a `create_agent(model, [tool], system_prompt=...)` graph.
 4. `assistant.answer(question)` invokes the agent with just the plain question — no pre-fetched context. Internally, the agent node calls the model; if it responds with `tool_calls`, the graph calls `retrieve_document_context` (which runs `vector_store.similarity_search()` + `context_from_document()` per chunk, or returns a "no relevant context found" sentinel), appends the result as a `ToolMessage`, and calls the model again. This repeats until the model stops requesting tools.
-5. `RagAssistant.answer()` checks `result.get("structured_response")` first — the agent was built with `response_format=ToolStrategy(schema=ContractResponse)` (`rag.py::__init__`), so a backend that honors the forced structured output returns a validated `ContractResponse` (`kind`/`content`/`command`, `response_contract.py`) directly. If populated, `contract_response_to_model_response()` converts it into a `ModelResponse`. If it's `None` (structured output wasn't produced this call), `answer()` falls back to the original text-parsing path: the final `AIMessage`'s content, still expected to carry an `ANS:`/`GENERAL:`/`CMD:`/`UNSAFE:` label, is passed to `parse_model_response()` (`text_after_label()`/`parse_unsafe_body()` internally). This fallback is deliberately kept, not scheduled for removal — see `TROUBLESHOOT.MD` for why.
+5. `RagAssistant.answer()` checks `result.get("structured_response")` first — the agent was built with `response_format=ToolStrategy(schema=ContractResponse)` (`assistant.py::__init__`), so a backend that honors the forced structured output returns a validated `ContractResponse` (`kind`/`content`/`command`, `response_contract.py`) directly. If populated, `contract_response_to_model_response()` converts it into a `ModelResponse`. If it's `None` (structured output wasn't produced this call), `answer()` falls back to the original text-parsing path: the final `AIMessage`'s content, still expected to carry an `ANS:`/`GENERAL:`/`CMD:`/`UNSAFE:` label, is passed to `parse_model_response()` (`text_after_label()`/`parse_unsafe_body()` internally). This fallback is deliberately kept, not scheduled for removal — see `TROUBLESHOOT.MD` for why.
 6. Before returning, `answer()` applies one deterministic override: if the resolved `kind` is `CMD` and any message in `result["messages"]` (i.e. a `ToolMessage` from `retrieve_document_context`) contains the literal substring `"(Safety: unsafe)"`, `answer()` force-upgrades `kind` to `UNSAFE` — regardless of what the model itself concluded. This closes a specific, measured gap where model judgment alone wasn't reliable at that boundary; see `TROUBLESHOOT.MD` for the numbers.
-7. `answer()` returns the resulting `ModelResponse` to `cli.py::main()`, which passes it straight to `print_model_response()` — `main()` no longer calls `parse_model_response()` itself. If `--exe`/`CHATBOT_EXECUTE_COMMANDS` was set, `apply_exe_request()` applies the execution rules with a `match` on `response.kind` (`ANS`/`GENERAL` never run anything; `CMD` runs with `--exe`; `UNSAFE` runs only with `--exe --yolo`) via `run_command()` → `subprocess.run(shell=True)`.
+7. `answer()` returns the resulting `ModelResponse` to `cli.py::main()`. On Windows, a command goes through `execution.py::normalize_command_for_shell()` first — the single quote-normalization point — and is then passed straight to `console.py::print_model_response()`; `main()` no longer calls `parse_model_response()` itself. If `--exe`/`CHATBOT_EXECUTE_COMMANDS` was set, `execution.py::apply_exe_request()` applies the execution rules with a `match` on `response.kind` (`ANS`/`GENERAL` never run anything; `CMD` runs with `--exe`; `UNSAFE` runs only with `--exe --yolo`) via `run_command()` → `subprocess.run(shell=True)`.
 8. Process exits 0 after `main()` returns (unhandled exceptions — bad path, missing `.env` value, Azure/local API errors — propagate as a non-zero exit with a traceback; there's no top-level catch-all yet).
 
 
@@ -208,58 +210,65 @@ sequenceDiagram
 
     participant CLI as CLI (cli.py)
     participant MP as Model Provider (model_provider.py)
-    participant RAG as RAG Pipeline (rag.py)
+    participant DOC as Ingestion (documents.py)
+    participant RET as Retrieval (retrieval.py)
     participant VS as Vector Store (InMemoryVectorStore)
+    participant AS as Assistant (assistant.py)
     participant AG as Agent (create_agent)
 
-    Note over CLI,AG: cli.py::main() orchestrates every stage. model_provider.py and rag.py never call each other.
+    Note over CLI,AG: cli.py::main() drives the sequence. The only call between stages is assistant.py asking retrieval.py to build its tool.
 
     CLI->>CLI: parse_args() then load_dotenv()
     CLI->>MP: get_model_provider()
     MP-->>CLI: provider (azure or local)
 
-    CLI->>RAG: scan_document_paths(source_path)
-    CLI->>RAG: load_documents(paths)
-    CLI->>RAG: split_documents(docs)
-    CLI->>RAG: build_embeddings()
-    CLI->>RAG: build_vectors(chunks, embeddings)
-    RAG->>VS: InMemoryVectorStore, rebuilt every run
-    RAG-->>CLI: vector_store
+    Note over CLI,RET: construction only - the block below, through RagAssistant(...), is cli.py::build_assistant(). answer, printing and execution are back in main().
+
+    CLI->>DOC: scan_document_paths(source_path)
+    CLI->>DOC: load_documents(paths)
+    CLI->>DOC: split_documents(docs)
+    DOC-->>CLI: chunks
+    CLI->>RET: build_embeddings()
+    CLI->>RET: build_vectors(chunks, embeddings)
+    RET->>VS: InMemoryVectorStore, rebuilt every run
+    RET-->>CLI: vector_store
 
     CLI->>MP: build_chat_model()
     MP->>MP: build_azure_chat_model() or build_local_chat_model()
     MP-->>CLI: BaseChatModel
 
-    CLI->>RAG: RagAssistant(vector_store, model, retrieval_k)
-    RAG->>AG: create_agent(model, retrieval tool, response_format=ToolStrategy)
+    CLI->>AS: RagAssistant(vector_store, model, retrieval_k)
+    AS->>RET: build_retrieval_tool(vector_store, retrieval_k)
+    RET-->>AS: retrieve_document_context tool
+    AS->>AG: create_agent(model, retrieval tool, response_format=ToolStrategy)
 
-    CLI->>RAG: assistant.answer(question)
-    RAG->>AG: agent.invoke({messages:[question]}, config)
+    CLI->>AS: assistant.answer(question)
+    AS->>AG: agent.invoke({messages:[question]}, config)
 
     loop until the model stops requesting tools (capped at 10 steps)
         AG->>AG: agent node decides whether to call a tool
-        AG->>RAG: retrieve_document_context(query)
-        RAG->>VS: similarity_search(query, k)
-        VS-->>RAG: nearest chunks
-        RAG->>RAG: context_from_document() per chunk
-        RAG-->>AG: ToolMessage appended
+        AG->>RET: retrieve_document_context(query)
+        RET->>VS: similarity_search(query, k)
+        VS-->>RET: nearest chunks
+        RET->>RET: context_from_document() then format_retrieval_results()
+        RET-->>AG: ToolMessage appended
     end
 
-    AG-->>RAG: result (structured_response, messages)
+    AG-->>AS: result (structured_response, messages)
 
     alt structured_response populated
-        RAG->>RAG: contract_response_to_model_response()
+        AS->>AS: contract_response_to_model_response()
     else structured_response is None
-        RAG->>RAG: parse_model_response(raw AIMessage)
+        AS->>AS: parse_model_response(raw AIMessage)
     end
 
-    RAG->>RAG: deterministic override, CMD becomes UNSAFE when a ToolMessage carries a (Safety: unsafe) tag
-    RAG-->>CLI: ModelResponse
+    AS->>AS: deterministic override, CMD becomes UNSAFE when a ToolMessage carries a (Safety: unsafe) tag
+    AS-->>CLI: ModelResponse
 
-    CLI->>CLI: print_model_response(response)
+    CLI->>CLI: normalize_command_for_shell(command) on Windows, then print_model_response(response)
 
     alt execution enabled (--exe or CHATBOT_EXECUTE_COMMANDS=true)
-        CLI->>CLI: apply_exe_request(response, yolo)
+        CLI->>CLI: apply_exe_request(response, yolo) in execution.py
         alt ANS or GENERAL
             CLI->>CLI: nothing was run
         else CMD, or UNSAFE with --yolo

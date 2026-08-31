@@ -2,8 +2,8 @@
 # 2026.08.30
 #
 # Purpose:
-# Pins the ingestion helpers that Phase C moves into documents.py - the Safety: tag
-# stripper, the supported-file scan, and the chunk-overlap guard. Model-free.
+# Pins the ingestion helpers in documents.py - the Safety: tag stripper, the
+# supported-file scan, and the chunk-overlap guard. Model-free.
 #
 # Run:
 # uv run pytest tests/test_documents.py
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from qylo.rag import extract_safety_tag, scan_document_paths, split_documents
+from qylo.documents import extract_safety_tag, scan_document_paths, split_documents
 
 
 # --- extract_safety_tag ------------------------------------------------------

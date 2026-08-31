@@ -9,7 +9,7 @@
 # temperature - so a single run proves nothing. Reasoning about a prompt change and
 # measuring one are different activities; several changes that were argued convincingly
 # turned out to be regressions when run more than once. Run this before and after any
-# change to system_prompt.txt, rag.py's agent construction, or retrieval settings.
+# change to system_prompt.txt, assistant.py's agent construction, or retrieval settings.
 #
 # NOT a test suite. It calls a real model provider and costs real tokens.
 #
@@ -33,15 +33,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from qylo.assistant import RagAssistant
+from qylo.documents import load_documents, scan_document_paths, split_documents
 from qylo.model_provider import build_chat_model
-from qylo.rag import (
-    RagAssistant,
-    build_embeddings,
-    build_vectors,
-    load_documents,
-    scan_document_paths,
-    split_documents,
-)
+from qylo.retrieval import build_embeddings, build_vectors
 
 # One case per response-contract branch. `expected` holds ResponseKind names, and a
 # command request accepts either COMMAND or UNSAFE - the deterministic Safety override

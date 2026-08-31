@@ -32,7 +32,7 @@ build-backend = "uv_build"
 # torch arrives transitively via sentence-transformers and is never imported by
 # this project directly. On Linux the default PyPI wheel drags in the whole CUDA
 # stack (nvidia-*, triton) - several GB that nothing here can use: embeddings run
-# on CPU (rag.py::build_embeddings passes no device), and llama.cpp publishes no
+# on CPU (retrieval.py::build_embeddings passes no device), and llama.cpp publishes no
 # Linux CUDA build either. Pinning the CPU index keeps the container image and CI
 # runners from carrying it.
 #

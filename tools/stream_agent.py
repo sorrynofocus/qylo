@@ -40,19 +40,12 @@ from langchain_core.messages import HumanMessage
 
 load_dotenv()
 
+from qylo.assistant import system_prompt
+from qylo.documents import load_documents, scan_document_paths, split_documents
 from qylo.model_provider import build_chat_model
-from qylo.rag import (
-    DEFAULT_MAX_AGENT_STEPS,
-    DEFAULT_RETRIEVAL_K,
-    build_embeddings,
-    build_retrieval_tool,
-    build_vectors,
-    load_documents,
-    scan_document_paths,
-    split_documents,
-    system_prompt,
-)
 from qylo.response_contract import ContractResponse
+from qylo.retrieval import build_embeddings, build_retrieval_tool, build_vectors
+from qylo.settings import DEFAULT_MAX_AGENT_STEPS, DEFAULT_RETRIEVAL_K
 
 
 def main() -> None:

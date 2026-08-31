@@ -16,7 +16,7 @@ import pytest
 from langgraph.errors import GraphRecursionError
 
 from qylo import string_table
-from qylo.rag import RagAssistant
+from qylo.assistant import RagAssistant
 from qylo.response_contract import ContractResponse, ResponseKind
 
 

@@ -4354,3 +4354,86 @@ more. It is n=1 on one grounded question, it is not a substitute for the 20-case
 `tools/score_contract.py` baseline (17/20 answered, 15/20 classified) which has not been re-run,
 and no agent saw the answer text or timed the run - the runtime and the verdict are the user's
 report. Factual accuracy and citation quality were not independently reviewed.
+
+
+# 2026-08-31 - The responsibility split (refactor Phase C)
+
+`src/qylo/rag.py` is gone. Its 566 lines are now four modules, and `cli.py` gave up two more
+jobs. The organizing rule, chosen by the user, is that **the module layout is the request
+flow** - `ls src/qylo/` should answer "walk me through it":
+
+```
+cli.py                1.  entry: parse args, wire things up, run
+settings.py           1a. defaults and .env resolution            NEW
+documents.py          2.  scan, load, split source documents      NEW
+retrieval.py          3.  embed, index, search them               NEW
+model_provider.py     4.  build the chat backend                  unchanged
+assistant.py          5.  agent loop: retrieve -> decide -> answer NEW
+response_contract.py  6.  turn the reply into a ModelResponse     unchanged
+console.py            7.  print it                                NEW
+execution.py          8.  gate it, then run it                    NEW
+```
+
+`__init__.py` carries that list as the flow map. `rag.py::etoi` is now
+`settings.py::positive_int_from_env`; the nested join/generator/ternary inside
+`build_retrieval_tool` is now `retrieval.py::format_retrieval_results`, an explicit loop; the
+inline Windows quote rewrite is `execution.py::normalize_command_for_shell`, still called from
+exactly one site in `main()`; and the ingestion/embedding/model wiring is
+`cli.py::build_assistant()`, which brought `main()` down to ~25 lines. `main()` also stopped
+calling `get_model_provider()` twice and printing the connecting message twice.
+
+**No behaviour was intended to change, and the model-facing text is byte-identical** -
+`tests/test_model_facing_text.py` passes with its pre-split sha256 expectations untouched. The
+expectations were retargeted to the new import paths, never regenerated from the new code.
+
+## The coverage gap this phase had to close first
+
+Codex found it during Phase C planning and proved it by mutation rather than argument: **the
+67-test Phase A suite never called the real `RagAssistant.__init__`.** `test_assistant_answer.py`
+builds the object with `__new__`; `test_execution_gate.py` substitutes a `FakeAssistant`. A
+constructor replaced with a raiser was called zero times while all 67 tests passed. For a phase
+whose entire risk is moved imports and lost wiring, that is the wrong thing to be blind to.
+
+`tests/test_assistant_construction.py` closes it with 11 tests: the real constructor with only
+`create_agent` replaced by a recorder (model, retrieval tool, `k` bound into the tool's closure,
+system prompt, `ToolStrategy(schema=ContractResponse)`, and the settings-derived defaults), plus
+the real `cli.build_assistant()` (pipeline order, and `-k` / `--system-prompt` actually arriving
+at the assistant).
+
+A second gap, same shape: **nothing imported the three `tools/` harnesses**, so a stale import
+there left `pytest` green, and `compileall` only checks syntax, not name resolution.
+`tests/test_harness_imports.py` imports all three with `load_dotenv` neutralized. It is
+necessary but not sufficient - it cannot see `verify_retry`'s runtime attribute read inside
+`main()`, which was separately retargeted from `rag.DEFAULT_MAX_AGENT_ATTEMPTS` to
+`settings.DEFAULT_MAX_AGENT_ATTEMPTS`.
+
+## Verification
+
+Offline only. No paid call was made for this change.
+
+- `uv run pytest` - **81 passed** (67 retargeted, 11 new constructor/wiring, 3 new harness-import).
+- `python -m compileall src` clean; `uv lock` resolved 95 packages; `uv run qylo --help` renders.
+- Five mutations, each run against the full suite to show the tests can actually fail:
+  dropping the retrieval tool from `create_agent` (2 failures), dropping `response_format`
+  (1), hardcoding `retrieval_k=4` in `build_assistant` (1), a stale `from qylo.rag import` in a
+  harness (1), and the Phase A guard - `apply_exe_request(..., yolo=True)` in `main()` (2). All
+  five were caught; the tree was restored and re-run green after each.
+- `--help` import cost measured against `HEAD` side by side: 7.886s before, 7.890s after. The
+  deferral survived the split. Worth noting separately, since the number surprises: that ~8s is
+  **not** the RAG stack, which is correctly deferred - it is `model_provider.py` at `cli.py`
+  module scope pulling `langchain_openai` -> `transformers` -> `torch`. That was already true
+  before this refactor and is unchanged by it.
+
+**What has NOT been run**, and still needs the user's word: a live grounded question, the
+20-case `tools/score_contract.py` baseline (compare against Phase A's 17/20 answered, 15/20
+classified - never against an ideal), and any Docker build or `workflow_dispatch`. Docker assets
+needed no edits (`COPY src/ ./src/`, an unchanged `qylo` console script, a
+`Path(__file__).parent`-relative prompt), but "needed no edits" is not "verified in the image".
+
+## What this means for the earlier entries in this file
+
+Everything above that names `rag.py` still names a real thing that happened; the file it names
+no longer exists. Read `rag.py::answer()` as `assistant.py::answer()`, `rag.py::extract_safety_tag`
+as `documents.py::extract_safety_tag`, `rag.py::build_retrieval_tool` as
+`retrieval.py::build_retrieval_tool`, and `DEFAULT_MAX_AGENT_*` as living in `settings.py`. The
+entries are kept as written, as with the `qna_chatbot` rename before them.

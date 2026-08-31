@@ -177,7 +177,7 @@ FROM python-deps AS cache-warm
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Mirrors rag.py::build_embeddings(), which constructs HuggingFaceEmbeddings with
+# Mirrors retrieval.py::build_embeddings(), which constructs HuggingFaceEmbeddings with
 # no cache_folder argument - so the model must land in the default HF_HOME location.
 # Needed by BOTH providers: embeddings are always computed locally, even when the
 # chat model is Azure.
@@ -287,7 +287,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 # the not-baked fallback path is unaffected by this.
 ENV HF_HUB_OFFLINE=1
 
-# Deliberately NOT set: CHATBOT_EXECUTE_COMMANDS. cli.py::run_command is a
+# Deliberately NOT set: CHATBOT_EXECUTE_COMMANDS. execution.py::run_command is a
 # subprocess.run(..., shell=True) with no allowlist and no audit log, so command
 # execution stays opt-in per run (--exe) rather than baked into the image.
 

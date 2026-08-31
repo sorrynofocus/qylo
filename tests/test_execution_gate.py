@@ -2,12 +2,17 @@
 # 2026.08.30
 #
 # Purpose:
-# Pins the two execution gates. The inner gate (apply_exe_request) decides what a given
-# response kind is allowed to run. The outer gate (main) decides whether execution was
-# authorized at all - --exe or CHATBOT_EXECUTE_COMMANDS=true - and forwards --yolo to the
-# inner one. They fail differently and are connected only inside main(), so both are
-# tested, and the outer tests cover UNSAFE as well as CMD: a CMD-only outer test cannot
-# notice main() forwarding yolo=True regardless of the flag. Nothing here reaches a shell.
+# Pins the two execution gates. The inner gate (execution.apply_exe_request) decides what
+# a given response kind is allowed to run. The outer gate (cli.main) decides whether
+# execution was authorized at all - --exe or CHATBOT_EXECUTE_COMMANDS=true - and forwards
+# --yolo to the inner one. They fail differently and are connected only inside main(), so
+# both are tested, and the outer tests cover UNSAFE as well as CMD: a CMD-only outer test
+# cannot notice main() forwarding yolo=True regardless of the flag. Nothing here reaches
+# a shell.
+#
+# Patch target note: apply_exe_request resolves run_command in execution.py's namespace,
+# so that is where the recorder is installed. Patching cli.run_command would silently
+# stop working after the Phase C split - the name no longer lives there.
 #
 # Run:
 # uv run pytest tests/test_execution_gate.py
@@ -16,7 +21,7 @@ from __future__ import annotations
 
 import sys
 
-from qylo import cli, string_table
+from qylo import cli, execution, string_table
 from qylo.response_contract import ModelResponse, ResponseKind
 
 SAFE_COMMAND = "rg -w flogger data/"
@@ -31,7 +36,7 @@ def response(kind: ResponseKind, command: str | None) -> ModelResponse:
 
 def record_run_command(monkeypatch) -> list[str]:
     """
-    Replace cli.run_command with a recorder and return the list it appends to.
+    Replace execution.run_command with a recorder and return the list it appends to.
 
     monkeypatch is pytest's built-in "swap this out, put it back after the test"
     helper. Replacing run_command is the only substitution the inner-gate tests
@@ -39,7 +44,7 @@ def record_run_command(monkeypatch) -> list[str]:
     """
 
     executed: list[str] = []
-    monkeypatch.setattr(cli, "run_command", lambda command: executed.append(command))
+    monkeypatch.setattr(execution, "run_command", lambda command: executed.append(command))
     return executed
 
 
@@ -74,7 +79,7 @@ def test_the_whole_gate_matrix(monkeypatch):
     for kind, command, yolo, should_execute in GATE_MATRIX:
         executed = record_run_command(monkeypatch)
 
-        cli.apply_exe_request(response(kind, command), yolo=yolo)
+        execution.apply_exe_request(response(kind, command), yolo=yolo)
 
         expected = [command] if should_execute else []
         # The message names the row, so a failure says which combination broke.
@@ -97,13 +102,13 @@ def test_exactly_three_combinations_are_allowed_to_execute():
 def test_single_quoted_segments_become_double_quoted():
     # cmd.exe does not treat single quotes as argument delimiters, so a POSIX-style
     # quoted command would search for the quotes themselves.
-    rewritten = cli.SINGLE_QUOTED_SEGMENT.sub(r'"\1"', "rg -w 'flogger' data/")
+    rewritten = execution.normalize_command_for_shell("rg -w 'flogger' data/")
 
     assert rewritten == 'rg -w "flogger" data/'
 
 
 def test_unquoted_command_is_left_alone():
-    assert cli.SINGLE_QUOTED_SEGMENT.sub(r'"\1"', SAFE_COMMAND) == SAFE_COMMAND
+    assert execution.normalize_command_for_shell(SAFE_COMMAND) == SAFE_COMMAND
 
 
 # --- outer gate: the real main(), with only its surroundings replaced --------
@@ -137,11 +142,14 @@ def run_main_with_stubs(
         execute_env: Value for CHATBOT_EXECUTE_COMMANDS, or None to unset it.
         reply: What the assistant answers with. Defaults to a safe CMD response.
 
-    main() imports the ingestion functions from qylo.rag at call time, so
-    patching them on the module is what the deferred import picks up.
+    cli.build_assistant() imports the pipeline functions from qylo.documents,
+    qylo.retrieval and qylo.assistant at call time, so patching them on those
+    modules is what the deferred imports pick up.
     """
 
-    import qylo.rag as rag
+    import qylo.assistant as assistant_module
+    import qylo.documents as documents
+    import qylo.retrieval as retrieval
 
     answer_with = reply if reply is not None else response(ResponseKind.COMMAND, SAFE_COMMAND)
 
@@ -165,12 +173,12 @@ def run_main_with_stubs(
     else:
         monkeypatch.setenv(string_table.ENV_EXECUTE_COMMANDS, execute_env)
 
-    monkeypatch.setattr(rag, "scan_document_paths", lambda path: ["doc.md"])
-    monkeypatch.setattr(rag, "load_documents", lambda paths: [FakeDoc("flogger writes logs")])
-    monkeypatch.setattr(rag, "split_documents", lambda docs: [FakeDoc("flogger writes logs")])
-    monkeypatch.setattr(rag, "build_embeddings", lambda: object())
-    monkeypatch.setattr(rag, "build_vectors", lambda chunks, embeddings: object())
-    monkeypatch.setattr(rag, "RagAssistant", FakeAssistant)
+    monkeypatch.setattr(documents, "scan_document_paths", lambda path: ["doc.md"])
+    monkeypatch.setattr(documents, "load_documents", lambda paths: [FakeDoc("flogger writes logs")])
+    monkeypatch.setattr(documents, "split_documents", lambda docs: [FakeDoc("flogger writes logs")])
+    monkeypatch.setattr(retrieval, "build_embeddings", lambda: object())
+    monkeypatch.setattr(retrieval, "build_vectors", lambda chunks, embeddings: object())
+    monkeypatch.setattr(assistant_module, "RagAssistant", FakeAssistant)
     monkeypatch.setattr(cli, "build_chat_model", lambda **kwargs: object())
 
     executed = record_run_command(monkeypatch)

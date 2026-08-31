@@ -21,7 +21,7 @@ CONVERSATIONAL category. Each looked correct on paper. One of them dropped conve
 from 12/20 to 4/20.
 
 Run these before and after any change to `system_prompt.txt`, to the agent construction
-in `rag.py`, or to retrieval settings.
+in `assistant.py`, or to retrieval settings.
 
 ## The scripts
 

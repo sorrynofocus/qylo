@@ -28,8 +28,9 @@ from __future__ import annotations
 import hashlib
 
 from qylo import string_table
-from qylo.rag import build_retrieval_tool, system_prompt
+from qylo.assistant import system_prompt
 from qylo.response_contract import ContractResponse
+from qylo.retrieval import build_retrieval_tool
 
 # Hashes captured 2026-08-30 from the pre-split code.
 TOOL_DESCRIPTION_SHA = "e91fc70faf6b925cd375845e135bccd30ad86746dabc14d9c976a7f0c26b7155"

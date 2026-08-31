@@ -64,7 +64,7 @@ Known and deliberate, not oversights:
 
 - **No persistence.** Every run rescans, re-chunks, re-embeds. Fine for a folder of READMEs; unworkable for a large corpus. There is no cache, no incremental update, and no index on disk.
 - **Retrieval quality is basic.** Similarity search only. A question phrased differently from the documentation may miss, and `-k` is the only tuning knob exposed.
-- **Executed commands are not sandboxed or allowlisted.** `cli.py::run_command` runs through the system shell with `shell=True`. The safety model is the `CMD`/`UNSAFE` contract plus explicit `--exe`/`--yolo` opt-in — there is no allowlist, no deny-pattern matching, and no audit log. This is a known gap, documented rather than hidden.
+- **Executed commands are not sandboxed or allowlisted.** `execution.py::run_command` runs through the system shell with `shell=True`. The safety model is the `CMD`/`UNSAFE` contract plus explicit `--exe`/`--yolo` opt-in — there is no allowlist, no deny-pattern matching, and no audit log. This is a known gap, documented rather than hidden.
 - **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `docs/TROUBLESHOOT.MD`'s "Two open gaps."
 - **Local inference is slow without a GPU.** ~4.9 tok/s on the hardware above means minutes per answer, not seconds. See [Provider comparison](docs/USAGE.md#provider-comparison-measured).
 - **Unit tests only; nothing tests a real answer.** `tests/` covers model-free behaviour — the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and the strings the model reads. Nothing exercises an actual model call: CI builds the image but runs no inference, so a change that breaks retrieval or the agent loop still needs a human asking a question.
@@ -75,12 +75,17 @@ Reasonable expectations: this answers questions about a folder of documentation 
 
 ```text
 .
-├── src/qylo/
-│   ├── cli.py                 # argparse entry point, orchestration, execution-safety gate
-│   ├── rag.py                  # ingestion pipeline + agentic RagAssistant (retrieval tool + create_agent)
-│   ├── response_contract.py    # ANS/GENERAL/CMD/UNSAFE parser
-│   ├── model_provider.py       # Azure / local chat-model construction
-│   └── string_table.py         # centralized user-facing/error string constants, imported by every module above
+├── src/qylo/                    # the module layout is the request flow, in this order
+│   ├── cli.py                   # 1.  argparse entry point, wiring, the outer execution gate
+│   ├── settings.py              # 1a. defaults and .env resolution
+│   ├── documents.py             # 2.  scan, load and split source documents
+│   ├── retrieval.py             # 3.  embed, index and search them (the retrieval tool)
+│   ├── model_provider.py        # 4.  Azure / local chat-model construction
+│   ├── assistant.py             # 5.  RagAssistant: the agent loop that answers
+│   ├── response_contract.py     # 6.  ANS/GENERAL/CMD/UNSAFE parser
+│   ├── console.py               # 7.  printing and progress echo
+│   ├── execution.py             # 8.  the inner execution gate, then subprocess
+│   └── string_table.py          # cross-cutting: user-facing/error strings, imported by every module above
 ├── data/documents/              # sample knowledge base (CLI-tool READMEs)
 ├── infra/
 │   ├── azure/                   # Bicep template + deploy.py to (re)provision the Azure OpenAI resource
@@ -104,7 +109,7 @@ Reasonable expectations: this answers questions about a folder of documentation 
 > [Application workflow](docs/ARCHITECTURE.md#application-workflow-current) in
 > `docs/ARCHITECTURE.md`.
 
-This is "agentic RAG," not the more common "naive RAG" (always retrieve top-k, stuff into the prompt, generate). `RagAssistant` (in `rag.py`) builds one retrieval tool, `retrieve_document_context`, bound to the in-memory vector store, and hands it to a `langchain.agents.create_agent` tool-calling loop along with the chat model. For each question:
+This is "agentic RAG," not the more common "naive RAG" (always retrieve top-k, stuff into the prompt, generate). `RagAssistant` (in `assistant.py`) builds one retrieval tool, `retrieve_document_context`, bound to the in-memory vector store, and hands it to a `langchain.agents.create_agent` tool-calling loop along with the chat model. For each question:
 
 1. The agent receives the plain question — no context is pre-fetched.
 2. It decides whether to call `retrieve_document_context(query)`, and can call it more than once with a refined query if the first results look incomplete.
@@ -124,7 +129,7 @@ COMMAND: proposed command for an unsafe request
 
 Command execution is opt-in. `--exe` executes `CMD:` responses. `UNSAFE:` responses are blocked unless both `--exe` and `--yolo` are provided. This keeps the safety decision separate from the model's answer. `GENERAL:` responses are treated the same as `ANS:` for execution purposes — they never run anything, regardless of `--exe`/`--yolo`.
 
-The final answer above is schema-enforced, not just a label the model is trusted to write correctly as free text: `RagAssistant.__init__` passes `response_format=ToolStrategy(schema=ContractResponse)` to `create_agent` (`rag.py`), so `kind`/`content`/`command` come back as a validated `ContractResponse` (`response_contract.py`) whenever the backend produces one. The old text-parsing (`parse_model_response`) is kept as a fallback for backends that don't produce a forced structured response, not removed. A retrieved doc's own `Safety: unsafe` tag also wins deterministically over the model's own classification — if that tag shows up in this turn's retrieved context, a `CMD` verdict is force-upgraded to `UNSAFE` in code, regardless of what the model concluded. See `docs/TROUBLESHOOT.MD` for the measured reliability numbers behind both changes.
+The final answer above is schema-enforced, not just a label the model is trusted to write correctly as free text: `RagAssistant.__init__` passes `response_format=ToolStrategy(schema=ContractResponse)` to `create_agent` (`assistant.py`), so `kind`/`content`/`command` come back as a validated `ContractResponse` (`response_contract.py`) whenever the backend produces one. The old text-parsing (`parse_model_response`) is kept as a fallback for backends that don't produce a forced structured response, not removed. A retrieved doc's own `Safety: unsafe` tag also wins deterministically over the model's own classification — if that tag shows up in this turn's retrieved context, a `CMD` verdict is force-upgraded to `UNSAFE` in code, regardless of what the model concluded. See `docs/TROUBLESHOOT.MD` for the measured reliability numbers behind both changes.
 
 ### Grounding a tool's safety in its own doc
 
@@ -137,7 +142,7 @@ Safety: safe
 Embeds Message tags/data/info at the end of any file.
 ```
 
-`rag.py::extract_safety_tag` strips this line out of the indexed content at load time and stores it as metadata; `retrieve_document_context` surfaces it alongside the citation (`Source: win-shutdown.md (Safety: unsafe)`), and the model is instructed to prefer it over its own guess when present. Docs with no invocable command (plain libraries/APIs, e.g. `Flogger-README.md`) don't need this line — the model still classifies safety itself for command requests it can't ground.
+`documents.py::extract_safety_tag` strips this line out of the indexed content at load time and stores it as metadata; `retrieve_document_context` surfaces it alongside the citation (`Source: win-shutdown.md (Safety: unsafe)`), and the model is instructed to prefer it over its own guess when present. Docs with no invocable command (plain libraries/APIs, e.g. `Flogger-README.md`) don't need this line — the model still classifies safety itself for command requests it can't ground.
 
 ## Documentation
 

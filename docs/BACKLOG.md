@@ -152,11 +152,20 @@ for offline deployment.
 *Proposal, not an approved specification. Nothing here is authorized.* Raised by the user
 2026-08-30: a FastAPI backend, possibly with a Next.js frontend on Vercel, after the refactor.
 
-**Phase C first, and the reason is structural rather than tidiness.** Today `cli.py::main()` owns
-the whole sequence: scan → load → split → embed → build vector store → build model → construct
-`RagAssistant` → answer → gate execution. A server needs the first five to happen *once at
-startup* and only `answer()` to happen per request. Phase C's responsibility split is precisely
-that seam. Building an API against the current `main()` means writing it twice.
+**Phase C came first, and the reason was structural rather than tidiness. It has now landed
+(2026-08-31), so this prerequisite is met.** `cli.py::main()` used to own the whole sequence:
+scan → load → split → embed → build vector store → build model → construct `RagAssistant` →
+answer → gate execution. A server needs the first five to happen *once at startup* and only
+`answer()` to happen per request. `cli.py::build_assistant()` is now a **candidate** seam for
+that: it returns a ready `RagAssistant`, and `main()` no longer has to be rewritten to get one.
+
+Two things it is not, and both matter before anyone builds against it. It **prints progress** to
+stdout at every stage, which a server does not want. And it **assumes its caller has already
+initialized configuration**: `main()` calls `load_dotenv()` before ingestion so the
+`CHATBOT_CHUNK_*` reads see it, while `build_chat_model()` loads `.env` only later, on its own.
+Call `build_assistant()` without that first and chunking silently falls back to defaults. So the
+seam exists, but configuration ownership and concurrency are still to design - and nothing about
+FastAPI, hosting or a frontend is approved.
 
 **What the code already gives a server, and this is checkable today, not aspiration:**
 
@@ -237,13 +246,13 @@ something destructive rests with the person typing it, who has accepted the prec
 it; **enriching the documents is the more promising lever than more code.**
 
 **Do not reopen with a pattern list.** If revisited, the open question is narrow:
-`rag.py::answer()` gates the `Safety: unsafe` override on `kind is ResponseKind.COMMAND`, so a
+`assistant.py::answer()` gates the `Safety: unsafe` override on `kind is ResponseKind.COMMAND`, so a
 doc that *did* declare `unsafe` is ignored whenever the model mislabels the request as
 `ANS`/`GENERAL`.
 
 - **Command requests misclassify as `ANS`/`GENERAL` (2026-08-09).** Only 6 of 15 command
   requests were labelled `CMD`/`UNSAFE` on Azure. Both wrong labels bypass the deterministic
-  `Safety: unsafe` override in `rag.py::answer()`. Prompt-level fixes have failed four times,
+  `Safety: unsafe` override in `assistant.py::answer()`. Prompt-level fixes have failed four times,
   and added prompt text measurably costs convergence. Deferred — see the decision above.
 - **Local path-attribution gap.** The 20-call sample's 2 misses were never attributed to the
   structured-output path versus the text-parsing fallback, so it is unknown which fix applies —

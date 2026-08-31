@@ -64,7 +64,7 @@ Model provider is chosen via `CHATBOT_MODEL_PROVIDER=azure|local` (see `.env.exa
 
 ## Repository map
 
-Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE.md` for flags and examples. See `docs/ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram. Docker packaging and Azure provisioning both live under `infra/` — see `infra/README.md` for which is which.
+The module layout is the request flow, in order — `src/qylo/__init__.py` is the map. Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE.md` for flags and examples. See `docs/ARCHITECTURE.md` for concepts, design rationale, and the full call-flow diagram. Docker packaging and Azure provisioning both live under `infra/` — see `infra/README.md` for which is which.
 
 ## Coding style
 
@@ -73,7 +73,7 @@ Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE
 - PEP 8; lines under 120 chars; prefer f-strings.
 - Add comments with descriptions and parameter explanations as in summaries in C#. Shorter functions that are obvious do not need comments.
 - Reuse existing functions/utilities over new abstractions; no speculative features.
-- User-facing and error strings live in `string_table.py`, one section per module (`# --- rag.py ---`, etc.) — new or changed strings go there as named constants (`MSG_*`/`ENV_*`), not inline literals.
+- User-facing and error strings live in `string_table.py`, one section per module (`# --- documents.py ---`, etc., in request-flow order) — new or changed strings go there as named constants (`MSG_*`/`ENV_*`), not inline literals.
 
 ## File headers
 
@@ -102,24 +102,35 @@ Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE
 This project is built and maintained across multiple models over time (Claude Sonnet 5 originally; later passes may come from other Claude versions or OpenAI models). Every rule below maps to something that broke in practice and was fixed once already — not a stylistic preference. Before removing or "simplifying" any of them, check `docs/TROUBLESHOOT.MD` for the incident it closes.
 
 - Response contract: every reply starts with `ANS:`/`GENERAL:`/`CMD:`/`UNSAFE:` (+ `COMMAND:` line for `UNSAFE`). `ANS`/`GENERAL` never execute; `CMD` needs `--exe`; `UNSAFE` needs `--exe --yolo`. Never collapse these execution paths.
-- `rag.py::system_prompt()` classifies intent (command vs. question) before grounding — a command request always resolves to `CMD`/`UNSAFE`, never `GENERAL`, grounded or not. Don't reintroduce the old "grounded-first" reasoning; it's what caused labels to go missing (see `docs/TROUBLESHOOT.MD`).
-- Docs may declare `Safety: safe`/`Safety: unsafe` near the top (`rag.py::extract_safety_tag`) for tools with a real invocable command; the model prefers this over its own guess. Only add it to docs describing an actual OS/CLI command, not plain libraries.
+- `assistant.py::system_prompt()` classifies intent (command vs. question) before grounding — a command request always resolves to `CMD`/`UNSAFE`, never `GENERAL`, grounded or not. Don't reintroduce the old "grounded-first" reasoning; it's what caused labels to go missing (see `docs/TROUBLESHOOT.MD`).
+- Docs may declare `Safety: safe`/`Safety: unsafe` near the top (`documents.py::extract_safety_tag`) for tools with a real invocable command; the model prefers this over its own guess. Only add it to docs describing an actual OS/CLI command, not plain libraries.
 - `RagAssistant` only exposes `__init__`/`answer()` — don't reintroduce factory constructors (`from_pdf`, etc.) without a real caller; a previous set were dead code and were removed. `answer()` returns a `ModelResponse`, not a raw string: it tries the schema-enforced structured-response path first (`ToolStrategy(schema=ContractResponse)`), falling back to `parse_model_response()` only if structured output wasn't produced — that fallback stays, it's not dead code.
-- Heavy imports (`langchain_huggingface`, etc.) stay deferred inside `main()` so `--help` stays fast.
-- `model_provider.py` is the sole abstraction boundary between `rag.py` and the chat backend.
-- `cli.py::run_command` has no allowlist/audit logging yet — known gap, not an oversight to silently patch. Windows `cmd.exe` quoting is handled inline in `main()` right after parsing (single-quote-to-double-quote rewrite, `SINGLE_QUOTED_SEGMENT`) — don't reintroduce a second normalization point in `run_command` itself.
+- The RAG stack (`documents.py`, `retrieval.py`, `assistant.py`, and so `langchain_huggingface`, `langchain.agents`, `langchain_community`) stays deferred inside `cli.py::build_assistant()` so `--help` stays fast — don't import any of it at `cli.py` module scope or in `__init__.py`. Separately and **pre-existing**: `model_provider.py` is imported at `cli.py` module scope and pulls `langchain_openai` → `transformers` → `torch`, which is what actually dominates `--help` (~8s, unchanged by the Phase C split). Deferring that too is a real win and a `docs/BACKLOG.md` item, not something to do incidentally.
+- `model_provider.py` is the sole abstraction boundary between `assistant.py` and the chat backend.
+- `execution.py::run_command` has no allowlist/audit logging yet — known gap, not an oversight to silently patch. Windows `cmd.exe` quoting is handled by `execution.py::normalize_command_for_shell()`, called from exactly one site in `main()` after `answer()` returns — don't reintroduce a second normalization point, in `run_command` or anywhere else.
 - Tool-calling reliability is backend-dependent (Azure reliable; local llama.cpp depends on the GGUF template) — see `docs/TROUBLESHOOT.MD`.
 
 ## Current focus / open work
 
 - Landed: intent-first response contract + doc-level `Safety:` tagging (2026-07-29) — fixed `CMD`/`UNSAFE` label reliability on Azure.
-- Landed: Windows `cmd.exe` single-quote normalization (2026-07-29) — inline in `cli.py::main()`.
+- Landed: Windows `cmd.exe` single-quote normalization (2026-07-29) — now `execution.py::normalize_command_for_shell()`, still called from one site in `cli.py::main()`.
 - Landed: telemetry removed (2026-08-30, refactor Phase B) — `telemetry.py`, `--usage`, `--usagelog` and the direct `tiktoken` declaration are gone; `build_chat_model()` and `RagAssistant.__init__` no longer take a `telemetry=` argument. The tiktoken cache in the Docker image is **deliberately retained** — see `docs/BACKLOG.md`, "The tiktoken cache outlived telemetry, deliberately". Everything telemetry ever measured is still in `docs/TROUBLESHOOT.MD`; don't reintroduce the feature to re-measure it without asking.
 - Deployment direction is open (2026-08-30): Docker is **deferred, not broken** — nothing has failed, it just has not been rebuilt since Phase B. A FastAPI service after the refactor is a proposal, not a decision. Don't treat a Docker build or `workflow_dispatch` as a blocker, and don't describe Docker as failing. See `docs/BACKLOG.md`, "Deployment".
 - Landed: Docker packaging (2026-08-07/08) — `infra/` split into `infra/azure/` + `infra/docker/`, six-stage Dockerfile, first GitHub Actions workflow. Also pinned torch to the CPU wheel index, which required declaring `torch` in `[project.dependencies]` since `[tool.uv.sources]` only binds direct deps. **Built and verified air-gapped**: 9.63GB image with the Qwen GGUF baked in produces a grounded answer on a `--internal` Docker network (no DNS, no egress), and the `CMD`/`UNSAFE` contract still gates execution correctly. `serve` defaults to `-c 16384 --parallel 1` — 4096 silently truncates the agentic loop and the model degenerates. See `docs/TROUBLESHOOT.MD` (2026-08-07, 2026-08-08).
 - Landed: first CI run (2026-08-08, run 31290501806) — `.github/workflows/docker.yml` passed on the first attempt, 32m57s, 9.63GB image matching the local build, air-gap reconfirmed under `--network none`. Disk was never the constraint (145G root, 88G free before reclaim). Trigger is now `workflow_dispatch` only; a full build is too expensive to spend on every push.
 - Landed: schema-enforced response (`ContractResponse` via `create_agent(response_format=ToolStrategy(...))`, 2026-07-29) — Azure fixed via a schema field-description rewrite plus a deterministic `Safety: unsafe` override (CMD→UNSAFE gap: 10/13 → 10/10); local came back 90% (18/20) over a 20-call sample. The text-parsing fallback is intentionally kept, not removed — local isn't proven reliable enough yet to drop it.
 - Landed: Azure convergence fix, re-verified (2026-08-08 fix, verified 2026-08-09) — shorter intent-first `system_prompt.txt` plus a bounded retry (`DEFAULT_MAX_AGENT_ATTEMPTS = 3`) in `answer()`. Host `tools/score_contract.py` scores 9/12 answered against a pre-fix baseline of 0/9; Docker (`qna-chatbot:slim`) reaches Azure and answers too. Convergence is no longer the top Azure risk — classification is. See `docs/TROUBLESHOOT.MD` (2026-08-09).
+
+- Landed: the responsibility split (2026-08-31, refactor Phase C) — `rag.py` is gone, split into
+  `settings.py`, `documents.py`, `retrieval.py` and `assistant.py`; `cli.py` gave up printing to
+  `console.py` and execution to `execution.py`, and its `main()` now reads as ~25 lines around a
+  `build_assistant()` helper. **The module layout is the request flow** — `src/qylo/__init__.py`
+  is the map, and the README tree and `docs/ARCHITECTURE.md` diagrams use the same filenames. One behaviour changed on purpose - the duplicate
+  provider lookup and its repeated "Connecting to..." line are gone, so that message now
+  prints once. Nothing else: the model-facing goldens are byte-identical across the move. New offline
+  coverage closes the gap Phase C review found — `tests/test_assistant_construction.py` calls the
+  real `RagAssistant.__init__` and `cli.build_assistant()`, and `tests/test_harness_imports.py`
+  imports the three `tools/` harnesses so a stale import there cannot leave `pytest` green.
 
 ## TODO
 
@@ -130,7 +141,9 @@ This project is built and maintained across multiple models over time (Claude So
 
 ## Testing
 
-`tests/` holds model-free unit tests — no provider, no network, no cost — run with `uv run pytest`. They cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, ingestion helpers, and a golden capture of the model-facing text (the bundled system prompt, the retrieval tool's name and description, the `ContractResponse` schema descriptions, and the retrieval result format). `tests/test_model_facing_text.py` fails if that text changes: fix the code, not the expectation, unless the prompt edit was deliberate and re-measured.
+`tests/` holds model-free unit tests — no provider, no network, no cost — run with `uv run pytest`. They cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, ingestion helpers, the real `RagAssistant.__init__` and `cli.build_assistant()` wiring, whether the three `tools/` harnesses still import, and a golden capture of the model-facing text (the bundled system prompt, the retrieval tool's name and description, the `ContractResponse` schema descriptions, and the retrieval result format). `tests/test_model_facing_text.py` fails if that text changes: fix the code, not the expectation, unless the prompt edit was deliberate and re-measured.
+
+Two of those exist because review found the suite blind to them, and both blind spots were proved by mutation rather than argued. Do not delete them as redundant: without `tests/test_assistant_construction.py` a lost import or dropped `create_agent` argument passes everything else, and without `tests/test_harness_imports.py` a stale import in `tools/` leaves `pytest` green (`compileall` checks syntax, not name resolution).
 
 `tools/` is not a test suite — those harnesses call a real provider and cost real tokens. Keep the two separate.
 

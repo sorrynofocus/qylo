@@ -6,7 +6,7 @@
 #
 # Purpose:
 # answer() retries on GraphRecursionError because looping is a sampling outcome rather
-# than a property of the question (see DEFAULT_MAX_AGENT_ATTEMPTS in rag.py). Confirming
+# than a property of the question (see DEFAULT_MAX_AGENT_ATTEMPTS in settings.py). Confirming
 # that from live traffic is unreliable - a healthy run converges on the first attempt and
 # exercises none of the retry path, so "it worked" proves nothing about the retry.
 #
@@ -28,17 +28,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from qylo import rag
+from qylo import settings
+from qylo.assistant import RagAssistant
+from qylo.documents import load_documents, scan_document_paths, split_documents
 from qylo.model_provider import build_chat_model
-from qylo.rag import (
-    RagAssistant,
-    build_embeddings,
-    build_vectors,
-    load_documents,
-    scan_document_paths,
-    split_documents,
-)
 from qylo.response_contract import ResponseKind
+from qylo.retrieval import build_embeddings, build_vectors
 
 
 def main() -> None:
@@ -52,9 +47,9 @@ def main() -> None:
         build_embeddings(),
     )
 
-    print(f"DEFAULT_MAX_AGENT_ATTEMPTS = {rag.DEFAULT_MAX_AGENT_ATTEMPTS}")
+    print(f"DEFAULT_MAX_AGENT_ATTEMPTS = {settings.DEFAULT_MAX_AGENT_ATTEMPTS}")
 
-    for attempts in (1, rag.DEFAULT_MAX_AGENT_ATTEMPTS):
+    for attempts in (1, settings.DEFAULT_MAX_AGENT_ATTEMPTS):
         assistant = RagAssistant(
             vector_store=store,
             model=build_chat_model(),

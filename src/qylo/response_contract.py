@@ -92,7 +92,7 @@ class ContractResponse(BaseModel):
     Replaces the free-text ANS:/GENERAL:/CMD:/UNSAFE: label convention with a
     tool-call schema the API validates directly, instead of relying on the
     model to write the label correctly as prose. See RagAssistant.answer()
-    (rag.py) for how this is combined with the text-label fallback below for
+    (assistant.py) for how this is combined with the text-label fallback below for
     backends that can't reliably produce a forced structured response.
 
     For readers new to Pydantic: BaseModel is roughly Pydantic's equivalent
@@ -135,7 +135,7 @@ class ContractResponse(BaseModel):
         CMD/UNSAFE must carry a non-null command; ANS/GENERAL must not. This
         is more than input validation: ToolStrategy defaults handle_errors to
         True (see the response_format=ToolStrategy(...) in
-        RagAssistant.__init__, rag.py), so a ValueError raised here is caught
+        RagAssistant.__init__, assistant.py), so a ValueError raised here is caught
         by create_agent and fed back to the model as a retry prompt rather
         than surfacing as a crash. That makes this validator a self-
         correction mechanism, not just a guard rail.

@@ -186,7 +186,7 @@ docker run --rm --env-file .env -v "$PWD/questions.txt:/q.txt" qylo batch /q.txt
 
 Exits non-zero if any question failed, having attempted all of them.
 
-> **This loops the process, not the work.** `rag.py` builds an `InMemoryVectorStore` that is
+> **This loops the process, not the work.** `retrieval.py` builds an `InMemoryVectorStore` that is
 > discarded at exit, so every question re-scans, re-chunks and re-embeds the whole corpus.
 > Fine for a handful of questions, genuinely wasteful for hundreds. Real batching needs the
 > vector store to persist across questions — a code change, not an entrypoint change.
@@ -344,7 +344,7 @@ even though llama.cpp ignores its value.
 ## Notes
 
 - The image runs as non-root (`appuser`, uid 1000).
-- `CHATBOT_EXECUTE_COMMANDS` is deliberately **not** set. `cli.py::run_command` is a
+- `CHATBOT_EXECUTE_COMMANDS` is deliberately **not** set. `execution.py::run_command` is a
   `subprocess.run(..., shell=True)` with no allowlist and no audit log, so command execution
   stays opt-in per run via `--exe` rather than baked into the image. A container is a
   reasonable blast-radius limit for that feature, but it is not a sandbox.

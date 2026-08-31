@@ -3,11 +3,11 @@
 # Model provider enables configuration to use a local or cloud AI model.
 #
 # Purpose:
-# The one abstraction boundary between rag.py and whichever chat backend is
-# configured. rag.py asks for a model and gets back a BaseChatModel it can
-# .invoke() - it never learns whether that model lives in Azure or in a
-# llama.cpp server on localhost. A new backend means a new build_*_chat_model()
-# here, not a change to the RAG code.
+# Stage 4 of the request flow, and the one abstraction boundary between
+# assistant.py and whichever chat backend is configured. cli.py asks for a model
+# and assistant.py gets back a BaseChatModel it can .invoke() - neither learns
+# whether that model lives in Azure or in a llama.cpp server on localhost. A new
+# backend means a new build_*_chat_model() here, not a change to the RAG code.
 #
 # Which backend is chosen comes from CHATBOT_MODEL_PROVIDER in .env rather than
 # a command-line switch, so a run stays reproducible from configuration alone.

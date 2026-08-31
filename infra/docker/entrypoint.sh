@@ -86,7 +86,7 @@ serve() {
 # --- batch -----------------------------------------------------------------
 # Run one question per line from $1.
 #
-# Note this loops the PROCESS, not the work: rag.py builds an InMemoryVectorStore
+# Note this loops the PROCESS, not the work: retrieval.py builds an InMemoryVectorStore
 # that is discarded at exit, so every question re-scans, re-chunks and re-embeds
 # the entire corpus. Fine for a handful of questions; genuinely wasteful for
 # hundreds. Real batching would need the vector store to persist across
