@@ -185,9 +185,12 @@ RUN python -c "\
 from langchain_huggingface import HuggingFaceEmbeddings; \
 HuggingFaceEmbeddings(model_name='sentence-transformers/all-MiniLM-L6-v2')"
 
-# Mirrors telemetry.py's tiktoken.get_encoding('cl100k_base'). Only exercised by
-# --usage/--usagelog, but warmed unconditionally: a telemetry flag must never be
-# the thing that turns an offline run into a hard failure.
+# The cl100k_base BPE table. Nothing in src/ imports tiktoken any more - the
+# telemetry feature that did was removed - but langchain_openai still depends on
+# it and exposes token-counting paths, so it is warmed unconditionally: a lazy
+# vocab download must never be the thing that turns an air-gapped run into a hard
+# failure. Retaining it is a recorded decision - see docs/BACKLOG.md, "The
+# tiktoken cache outlived telemetry, deliberately".
 RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
 

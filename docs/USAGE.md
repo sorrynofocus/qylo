@@ -1,6 +1,6 @@
 # Usage
 
-Flags, the parameter walkthrough, telemetry, and error cases. 
+Flags, the parameter walkthrough, and error cases. 
 
 Back to [README.md](../README.md) from here.
 
@@ -17,8 +17,6 @@ Back to [README.md](../README.md) from here.
 | `--exe` | no | off | Execute a `CMD:` response. Also required (alongside `--yolo`) to execute an `UNSAFE:` response. Setting `CHATBOT_EXECUTE_COMMANDS=true` in `.env` does the same thing for every run, without the flag — see [Configuration](SETUP.md#configuration). |
 | `--yolo` | no | off | Additionally allow executing an `UNSAFE:` response. Has no effect without `--exe`. |
 | `--system-prompt <path>` | no | bundled system_prompt.txt | Custom system prompt file to use instead of the bundled default. |
-| `--usage` | no | off | Print a per-stage AI-usage telemetry summary (calls, bytes, tokens, retries) after the answer. See "AI-usage telemetry" below. |
-| `--usagelog [path]` | no | off | Also write telemetry events to a JSON-lines log file. Requires `--usage`. Bare flag defaults to `<today's date>-usage.log`. |
 
 ### Parameter walkthrough
 
@@ -150,27 +148,9 @@ A shutdown is system-changing, so expect the model to label it `UNSAFE:` rather 
 uv run qylo "shutdown windows with a comment that the machine was software updated" --exe --yolo
 ```
 
-Print a per-stage AI-usage summary after the answer:
+### Progress tags
 
-```sh
-uv run qylo "What is flogger and what logging features does it support?" --usage
-```
-
-Also write one JSON line per telemetry event to a log file (defaults to `<today's date>-usage.log`) for cross-run comparison:
-
-```sh
-uv run qylo "What is flogger and what logging features does it support?" --usage --usagelog
-```
-
-### AI-usage telemetry (`--usage` / `--usagelog`)
-
-Both flags are opt-in and additive: omitting `--usage` leaves every code path byte-for-byte identical to before this feature existed (`model_provider.py::_telemetry_http_client` returns `None` and `RagAssistant` never attaches a callback handler). `--usagelog` requires `--usage` — passing it alone is a parser error.
-
-With `--usage`, the CLI prints a table with one row per pipeline stage — `ingestion`, `embedding`, `model_call`, `retrieval` — showing call count, bytes, an estimated input-token count, actual input/output/total tokens, summed latency, and retry count. Bytes and actual token counts are `0`/`n/a` for every stage except `model_call`: `ingestion`/`embedding` are pure local file I/O and model loading, and `retrieval` is a local vector-store search — none of that crosses the network. Estimated tokens use OpenAI's `cl100k_base` tokenizer (via `tiktoken`) applied uniformly across providers, including the local llama.cpp backend, since no model-specific tokenizer is vendored — treat it as same-order-of-magnitude, not exact, and prefer the actual provider-reported counts (Azure only, via `usage_metadata`) whenever both are shown. `--usagelog` additionally appends one JSON line per recorded event to a log file, for diffing usage across runs.
-
-**On what lands in a usage log.** Each logged event carries a short `preview` field containing only your question or the retrieval query — never system-prompt or retrieved-document text. This is enforced in code rather than merely intended: `preview` is taken from the human turn alone, and a run with an empty question (or any future entry point that invokes the agent without a human turn) produces an empty preview rather than falling back to the full message text. That fallback existed until 2026-08-05; see `TROUBLESHOOT.MD` under "Telemetry preview can fall back to system-prompt text" for the write-up. Full message text still feeds the token estimate and content hash, which never leave the local process as text.
-
-This is a separate, unrelated thing from the `[stage] [locality]` prefix now on every progress print (e.g. `[ingestion] [local] Scanning data\documents...`, `[call model] [cloud] Connecting to azure chat model...`) — those tags are always on, cost nothing to compute, and don't require `--usage`. See [AI-usage telemetry](ARCHITECTURE.md#ai-usage-telemetry-two-instrumentation-layers-one-call-type) in `ARCHITECTURE.md` for the instrumentation mechanism and an important finding about what a "call" actually represents in this pipeline.
+Every progress print carries a `[stage] [locality]` prefix (e.g. `[ingestion] [local] Scanning data\documents...`, `[call model] [cloud] Connecting to azure chat model...`). The tags are always on, cost nothing to compute, and need no flag: they say which pipeline stage you are in and whether that stage runs locally or crosses the network to a provider.
 
 ### Provider comparison (measured)
 
@@ -198,7 +178,5 @@ Scenarios that come from configuration or runtime state rather than any single C
 - **...the agent gets stuck searching the knowledge base and never produces an answer?** `RagAssistant` caps the tool-calling loop at 10 LangGraph steps (`DEFAULT_MAX_AGENT_STEPS`, `rag.py`) — if that's hit, you get a `GENERAL:`-style response explaining the agent didn't converge, instead of the CLI hanging. This isn't a hypothetical: see `TROUBLESHOOT.MD`'s "Runaway agent loop..." entry for a real, measured case that ran ~21 minutes and 5.36M billed tokens on a single question before this cap existed.
 - **...I set `CHATBOT_EXECUTE_COMMANDS=true` and forget about it?** Every run behaves as if `--exe` were passed, so any `CMD:` response executes immediately with no prompt. `--exe` on the command line is additive, not an override — there's no flag to turn execution back off for a single run, so unset the variable if you want the safe default back.
 - **...I set `CHATBOT_CHUNK_SIZE=abc` or a negative number?** `rag.py::etoi` raises `RuntimeError: CHATBOT_CHUNK_SIZE must be a positive whole number, got: abc` (same for `CHATBOT_CHUNK_OVERLAP`) during the ingestion stage, before the embedding model loads — a typo fails loudly instead of silently reverting to the default. Setting an overlap that isn't smaller than the chunk size fails the same way, with a message naming both variables.
-- **...`--usagelog` is passed without `--usage`?** Rejected immediately: `qylo: error: --usagelog requires --usage.` Nothing runs.
-- **...I run the exact same question twice in a row?** Full re-scan, re-embedding, and a fresh model call happen both times — there's no cross-run cache (see `ARCHITECTURE.md`'s "Why in-memory, not persistent, vector store"). Expect similar latency both times, and — since the model's output isn't guaranteed deterministic — possibly different `--usage` numbers between the two runs, not identical ones.
-- **...I Ctrl+C mid-run while using `--usage`/`--usagelog`?** Nothing gets printed or logged for that run — `TelemetrySession` only persists data at the very end of a run that's allowed to finish; a killed process loses whatever was recorded so far. Any cost already incurred against your provider up to that point still happened, it's just not visible in the output.
+- **...I run the exact same question twice in a row?** Full re-scan, re-embedding, and a fresh model call happen both times — there's no cross-run cache (see `ARCHITECTURE.md`'s "Why in-memory, not persistent, vector store"). Expect similar latency both times, and — since the model's output isn't guaranteed deterministic — possibly a different answer, not an identical one.
 - **...I want to see every flag and its one-line description without leaving the terminal?** `uv run qylo --help`.

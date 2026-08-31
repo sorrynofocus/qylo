@@ -1,6 +1,0 @@
-# Keeps logs/ present in a fresh clone.
-#
-# docker-compose.yml bind-mounts this directory to /app/logs for --usagelog output.
-# Docker creates a missing bind-mount source as root-owned, which the container's
-# non-root appuser then cannot write to; having the directory already exist in the
-# checkout avoids that.

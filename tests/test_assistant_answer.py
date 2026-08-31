@@ -58,7 +58,7 @@ def make_assistant(agent: FakeAgent, max_attempts: int = 3, max_steps: int = 10)
     Build a RagAssistant around a stand-in agent, skipping __init__.
 
     __init__ would construct a real chat model and compile a real graph. answer()
-    only touches the four attributes set here, so __new__ plus these assignments
+    only touches the three attributes set here, so __new__ plus these assignments
     gives a real RagAssistant running real answer() code.
     """
 
@@ -66,7 +66,6 @@ def make_assistant(agent: FakeAgent, max_attempts: int = 3, max_steps: int = 10)
     assistant._agent = agent
     assistant.max_agent_steps = max_steps
     assistant.max_agent_attempts = max_attempts
-    assistant._telemetry_handler = None
     return assistant
 
 

@@ -51,6 +51,8 @@ I chose to do this because I stumbled on another naive rag project using langcha
 
 This project started as **naive RAG** (retrieve-then-read): always fetch the top-`k` chunks (a shortlist of the chunks scoring closest to the query) up front and stuff them into the prompt, whether or not they're actually relevant to the question. It has since evolved into **agentic RAG**: the model is handed a `retrieve_document_context` tool (`rag.py::build_retrieval_tool`) inside a `langchain.agents.create_agent` tool-calling loop, and decides for itself whether to search at all, and whether to refine the query and search again, before writing a final answer. See "Application workflow" below for the exact call sequence.
 
+One question is therefore not one model call. The system prompt asks the model to classify intent *and* produce the final `ANS`/`GENERAL`/`CMD`/`UNSAFE`-shaped answer in whichever iteration of the loop turns out to be its last, and every iteration before that is the same kind of chat-completion request with a tool result appended to the message history. So a question costs exactly one model call if the model answers directly, or 2+ if it calls `retrieve_document_context` first — and because each additional call resends the whole growing history, a 2-call turn sends the system prompt bytes twice, not once.
+
 Naming this matters because it's a spectrum, not just two options:
 
 ```
@@ -123,30 +125,9 @@ Which is why `parse_model_response()` is still in `response_contract.py`. It is 
 
 The measured numbers behind all of this are in `TROUBLESHOOT.MD`.
 
-### AI-usage telemetry: two instrumentation layers, one call type
-
-`--usage`/`--usagelog` (`cli.py`) are opt-in observability, not an optimization. I wanted to sniff out what's being used. This was very hard to put in and Claude Code helped immensely in this area. I'm not a good monitoring person. Like Kubernetes, it's a weakness of mine. 
-
-The telemetry measure calls, bytes, tokens, and retries without changing what the pipeline does. When `--usage` isn't passed, `cli.py::main()` never builds a `TelemetrySession`, `build_chat_model(telemetry=None)` never builds a custom `httpx.Client`, and `RagAssistant.__init__` never attaches a callback handler. Every code path is identical to before telemetry existed.
-
-`src/qylo/telemetry.py` feeds one `TelemetrySession` from two independent instrumentation layers, because neither alone tells the whole story:
-
-- **`TelemetryCallbackHandler`** (a `langchain_core.callbacks.BaseCallbackHandler`) hooks the *logical* call boundary: `on_chat_model_start`/`on_llm_end` bracket one `MODEL_CALL` event per round-trip through the agent's tool-calling loop, and `on_tool_start`/`on_tool_end` record one `RETRIEVAL` event per `retrieve_document_context` call. `RagAssistant.answer()` attaches it via `config={"callbacks": [...]}` on `agent.invoke()`. This layer sees provider-reported `usage_metadata` (actual input/output/total tokens) when the provider returns it.
-- **`httpx_event_hooks(session)`** hooks the actual wire requests/responses, wired into `AzureChatOpenAI`/`ChatOpenAI` via `http_client=httpx.Client(event_hooks=...)` (`model_provider.py::_telemetry_http_client`, called from `build_azure_chat_model`/`build_local_chat_model`). This is the only layer that sees true wire-level bytes and silent retries: both chat-model builders already set `max_retries=2`, and LangChain's callback boundary fires exactly once per logical `.invoke()` no matter how many HTTP attempts the OpenAI SDK made underneath -- a retry is invisible to `TelemetryCallbackHandler` alone.
-
-**Correlation mechanism.** `RagAssistant.answer()` is synchronous, so a model call's `on_chat_model_start`/`on_llm_end` pair always brackets its own httpx request(s) in the same call stack. `TelemetrySession` exploits this with a "currently open call" slot (`open_call`/`close_call`/`open_call_event`): `on_chat_model_start` opens it with a freshly-built `TelemetryEvent`, the httpx hooks read `open_call_event` to add wire bytes and bump `http_requests` onto that same event, and `on_llm_end` closes it after filling in duration and `usage_metadata`. No request ID matching is needed because there's only ever one call open at a time.
-
-**One call type, not two.** It would be tempting to report separate "classification" and "final answer" call types, but that distinction doesn't exist at the network level in this codebase... the system prompt asks the model to classify intent *and* produce the final `ANS`/`GENERAL`/`CMD`/`UNSAFE`-shaped answer in whichever iteration of the tool-calling loop turns out to be its last, and every iteration before that is the same kind of chat-completion request, just with a tool result appended to the message history. So the taxonomy telemetry actually reports is one call type, `model_call`, distinguished per-invocation by an ordinal `sequence` and a `final` flag (`true` = this call produced the final answer, `false` = it requested a tool). One user question therefore produces exactly 1 model call if the model answers directly, or 2+ if it calls `retrieve_document_context` first. And, because each additional call resends the whole growing message history, a 2-call turn sends the system prompt bytes twice, not once.
-
-**Local pipeline stages.** `measure(session, stage)` is a context manager used directly in `cli.py::main()` around the ingestion stage (scan+load+split) and the embedding stage (build_embeddings+build_vectors) -the two stages that are local and always free regardless of provider. It yields a mutable `_StageMetrics` the caller fills in (`payload_bytes`/`content_for_hash`/`preview_text`) during the `with` block, and no-ops cleanly when `session is None`, so call sites don't need a separate `if telemetry:` branch around the wrapped work.
-
-**Redaction.** `sha256_short()` (first 12 hex chars of a sha256 digest) and `redact_preview()` (whitespace-collapsed, truncated to 80 chars) keep raw document/system-prompt content out of both the printed summary and the `--usagelog` JSON-lines file. Every event carries a hash and a short preview, never the underlying text.
-
-That guarantee is enforced, not just intended: `preview` is built from the human turn alone. The full concatenated message text (system prompt + retrieved chunks) still feeds the token estimate and the content hash, but it can't reach `preview` -a call with no human turn, or an empty question, produces an empty preview rather than falling back to that text. It didn't always work that way. See `TROUBLESHOOT.MD`, "Telemetry preview can fall back to system-prompt text" (2026-08-05), for the version that could have leaked and why an empty preview is the better failure.
-
 ### Centralized strings (`string_table.py`)
 
-Every user-facing and error string used by `cli.py`, `rag.py`, `model_provider.py`, `telemetry.py`, and `response_contract.py` is a named constant in `string_table.py`, grouped by the module that uses it (`# --- rag.py ---`, etc. to provide mapping), not an inline literal. This exists so strings can be revised, localized, or audited in one place instead of hunted across five files. When adding or changing a message, add or edit the constant there and import it, don't inline a new literal.
+Every user-facing and error string used by `cli.py`, `rag.py`, `model_provider.py`, and `response_contract.py` is a named constant in `string_table.py`, grouped by the module that uses it (`# --- rag.py ---`, etc. to provide mapping), not an inline literal. This exists so strings can be revised, localized, or audited in one place instead of hunted across four files. When adding or changing a message, add or edit the constant there and import it, don't inline a new literal.
 
 String tables are quite important and most don't use it. I did in my early career because of enterprise application development (mostly for localization). I'm trying my best to do more of it these days. String sprinkling is a bad practice. 
 
@@ -178,9 +159,9 @@ flowchart TD
     F --> G["build_embeddings() — rag.py\n(HuggingFaceEmbeddings, all-MiniLM-L6-v2)"]
     G --> H["build_vectors(chunks, embeddings) — rag.py\n(InMemoryVectorStore, rebuilt every run)"]
     H --> I["build_chat_model() — model_provider.py"]
-    I --> I1["build_azure_chat_model() or build_local_chat_model()\n(+ env_required() for missing .env values)\n(optional: httpx_event_hooks wired in when --usage)"]
-    I1 --> J["RagAssistant(vector_store, model, retrieval_k) — rag.py\n__init__ builds build_retrieval_tool() + create_agent(...)\n(optional: TelemetryCallbackHandler attached when --usage)"]
-    J --> K["assistant.answer(question)\nagent.invoke({messages: [question]}, config)\n(config carries callbacks=[...] only when --usage)"]
+    I --> I1["build_azure_chat_model() or build_local_chat_model()\n(+ env_required() for missing .env values)"]
+    I1 --> J["RagAssistant(vector_store, model, retrieval_k) — rag.py\n__init__ builds build_retrieval_tool() + create_agent(...)"]
+    J --> K["assistant.answer(question)\nagent.invoke({messages: [question]}, config)"]
     K --> K1{"agent node: does the model want to call a tool?"}
     K1 -- "tool_calls present" --> K2["retrieve_document_context(query) — rag.py\nvector_store.similarity_search() → context_from_document() per chunk"]
     K2 --> K3["ToolMessage appended → agent node runs again\n(may loop; model can refine the query)"]
@@ -210,9 +191,9 @@ flowchart TD
 Plain-text version of the same path, if Mermaid chart doesn't render:
 
 1. `main()` parses args, then calls `load_dotenv()` before anything reads an env var — so `.env` values (`CHATBOT_MODEL_PROVIDER`, `CHATBOT_EXECUTE_COMMANDS`, the `CHATBOT_CHUNK_*` settings) are visible to everything downstream, not just to `build_chat_model()`, which calls it again harmlessly later. It then eagerly announces the chat provider (`get_model_provider()`) before the slow imports.
-2. Lazy-imports `rag.py` (keeps `--help` fast), then runs the ingestion pipeline: `scan_document_paths` → `load_documents`/`load_document` → `split_documents` → `build_embeddings` → `build_vectors`. When `--usage` was passed, `main()` wraps the ingestion and embedding stages in `telemetry.measure()` (`telemetry.py`), an optional, no-op-when-off context manager that records local stage bytes/duration — see [AI-usage telemetry](#ai-usage-telemetry-two-instrumentation-layers-one-call-type) below.
-3. Builds the chat model (`build_chat_model` → `build_azure_chat_model`/`build_local_chat_model`, reading `.env` via `env_required`), then constructs `RagAssistant` directly (plain constructor — no factory classmethods). `RagAssistant.__init__` builds a `retrieve_document_context` tool bound to that instance's vector store/`retrieval_k` (`build_retrieval_tool()`) and compiles a `create_agent(model, [tool], system_prompt=...)` graph. Both steps optionally take a `TelemetrySession` (`telemetry=` parameter) when `--usage` was passed — `build_chat_model` wires wire-level `httpx_event_hooks` into the model's `http_client`, and `RagAssistant.__init__` builds a `TelemetryCallbackHandler`; omitting `--usage` leaves both `None` and every code path unchanged from before telemetry existed.
-4. `assistant.answer(question)` invokes the agent with just the plain question — no pre-fetched context — passing `config={"callbacks": [...]}` only when a `TelemetryCallbackHandler` was built. Internally, the agent node calls the model; if it responds with `tool_calls`, the graph calls `retrieve_document_context` (which runs `vector_store.similarity_search()` + `context_from_document()` per chunk, or returns a "no relevant context found" sentinel), appends the result as a `ToolMessage`, and calls the model again. This repeats until the model stops requesting tools.
+2. Lazy-imports `rag.py` (keeps `--help` fast), then runs the ingestion pipeline: `scan_document_paths` → `load_documents`/`load_document` → `split_documents` → `build_embeddings` → `build_vectors`.
+3. Builds the chat model (`build_chat_model` → `build_azure_chat_model`/`build_local_chat_model`, reading `.env` via `env_required`), then constructs `RagAssistant` directly (plain constructor — no factory classmethods). `RagAssistant.__init__` builds a `retrieve_document_context` tool bound to that instance's vector store/`retrieval_k` (`build_retrieval_tool()`) and compiles a `create_agent(model, [tool], system_prompt=...)` graph.
+4. `assistant.answer(question)` invokes the agent with just the plain question — no pre-fetched context. Internally, the agent node calls the model; if it responds with `tool_calls`, the graph calls `retrieve_document_context` (which runs `vector_store.similarity_search()` + `context_from_document()` per chunk, or returns a "no relevant context found" sentinel), appends the result as a `ToolMessage`, and calls the model again. This repeats until the model stops requesting tools.
 5. `RagAssistant.answer()` checks `result.get("structured_response")` first — the agent was built with `response_format=ToolStrategy(schema=ContractResponse)` (`rag.py::__init__`), so a backend that honors the forced structured output returns a validated `ContractResponse` (`kind`/`content`/`command`, `response_contract.py`) directly. If populated, `contract_response_to_model_response()` converts it into a `ModelResponse`. If it's `None` (structured output wasn't produced this call), `answer()` falls back to the original text-parsing path: the final `AIMessage`'s content, still expected to carry an `ANS:`/`GENERAL:`/`CMD:`/`UNSAFE:` label, is passed to `parse_model_response()` (`text_after_label()`/`parse_unsafe_body()` internally). This fallback is deliberately kept, not scheduled for removal — see `TROUBLESHOOT.MD` for why.
 6. Before returning, `answer()` applies one deterministic override: if the resolved `kind` is `CMD` and any message in `result["messages"]` (i.e. a `ToolMessage` from `retrieve_document_context`) contains the literal substring `"(Safety: unsafe)"`, `answer()` force-upgrades `kind` to `UNSAFE` — regardless of what the model itself concluded. This closes a specific, measured gap where model judgment alone wasn't reliable at that boundary; see `TROUBLESHOOT.MD` for the numbers.
 7. `answer()` returns the resulting `ModelResponse` to `cli.py::main()`, which passes it straight to `print_model_response()` — `main()` no longer calls `parse_model_response()` itself. If `--exe`/`CHATBOT_EXECUTE_COMMANDS` was set, `apply_exe_request()` applies the execution rules with a `match` on `response.kind` (`ANS`/`GENERAL` never run anything; `CMD` runs with `--exe`; `UNSAFE` runs only with `--exe --yolo`) via `run_command()` → `subprocess.run(shell=True)`.
@@ -245,7 +226,7 @@ sequenceDiagram
     RAG->>VS: InMemoryVectorStore, rebuilt every run
     RAG-->>CLI: vector_store
 
-    CLI->>MP: build_chat_model(telemetry)
+    CLI->>MP: build_chat_model()
     MP->>MP: build_azure_chat_model() or build_local_chat_model()
     MP-->>CLI: BaseChatModel
 

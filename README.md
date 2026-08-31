@@ -46,7 +46,6 @@ The agentic part is genuine — `RagAssistant` hands `create_agent` a `retrieve_
 | Vector store | `InMemoryVectorStore` | Rebuilt every run; nothing persists to disk |
 | Chat model | Azure OpenAI **or** local llama.cpp | Chosen by `CHATBOT_MODEL_PROVIDER`; `model_provider.py` is the only seam |
 | Response validation | Pydantic `ContractResponse` via `ToolStrategy` | Schema-enforced, with a text-parsing fallback |
-| Telemetry | Opt-in `--usage` / `--usagelog` | Two layers: LangChain callbacks + httpx wire hooks |
 
 ### A dependency worth knowing about: structured outputs
 
@@ -68,7 +67,6 @@ Known and deliberate, not oversights:
 - **Executed commands are not sandboxed or allowlisted.** `cli.py::run_command` runs through the system shell with `shell=True`. The safety model is the `CMD`/`UNSAFE` contract plus explicit `--exe`/`--yolo` opt-in — there is no allowlist, no deny-pattern matching, and no audit log. This is a known gap, documented rather than hidden.
 - **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `docs/TROUBLESHOOT.MD`'s "Two open gaps."
 - **Local inference is slow without a GPU.** ~4.9 tok/s on the hardware above means minutes per answer, not seconds. See [Provider comparison](docs/USAGE.md#provider-comparison-measured).
-- **Token estimates are approximate.** `cl100k_base` is applied uniformly across providers; the provider-reported counts are the billing truth.
 - **Unit tests only; nothing tests a real answer.** `tests/` covers model-free behaviour — the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and the strings the model reads. Nothing exercises an actual model call: CI builds the image but runs no inference, so a change that breaks retrieval or the agent loop still needs a human asking a question.
 
 Reasonable expectations: this answers questions about a folder of documentation accurately and with citations, and composes plausible CLI commands from documented tools. It is not a production knowledge base, not a general coding agent, and not a safe autonomous command executor.
@@ -82,7 +80,6 @@ Reasonable expectations: this answers questions about a folder of documentation 
 │   ├── rag.py                  # ingestion pipeline + agentic RagAssistant (retrieval tool + create_agent)
 │   ├── response_contract.py    # ANS/GENERAL/CMD/UNSAFE parser
 │   ├── model_provider.py       # Azure / local chat-model construction
-│   ├── telemetry.py            # opt-in --usage/--usagelog AI-usage measurement (calls, bytes, tokens, retries)
 │   └── string_table.py         # centralized user-facing/error string constants, imported by every module above
 ├── data/documents/              # sample knowledge base (CLI-tool READMEs)
 ├── infra/
@@ -91,7 +88,7 @@ Reasonable expectations: this answers questions about a folder of documentation 
 ├── docs/
 │   ├── BACKLOG.md                 # Open work that has YET not started!
 │   ├── SETUP.md                 # install, provider choice, .env reference
-│   ├── USAGE.md                 # flags, examples, telemetry, error cases
+│   ├── USAGE.md                 # flags, examples, error cases
 │   ├── ARCHITECTURE.md          # concepts, design rationale, full call-flow diagram
 │   └── TROUBLESHOOT.MD          # dated debugging log / known gotchas
 ├── AGENTS.md                    # agent operating instructions (Codex, Cursor, Copilot, Claude Code)
@@ -145,7 +142,7 @@ Embeds Message tags/data/info at the end of any file.
 ## Documentation
 
 - [docs/SETUP.md](docs/SETUP.md) — install, provider choice, `.env` reference
-- [docs/USAGE.md](docs/USAGE.md) — flags, examples, telemetry, error cases
+- [docs/USAGE.md](docs/USAGE.md) — flags, examples, error cases
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — concepts, design rationale, call-flow and sequence diagrams
 - [docs/TROUBLESHOOT.MD](docs/TROUBLESHOOT.MD) — dated debugging log and known gotchas
 - [docs/BACKLOG.md](docs/BACKLOG.md) — open work: known gaps, planned changes, and why they matter

@@ -68,7 +68,6 @@ from qylo.response_contract import (
     contract_response_to_model_response,
     parse_model_response,
 )
-from qylo.telemetry import TelemetryCallbackHandler, TelemetrySession
 
 # Default local embedding model. It maps text into a 384-dimensional vector
 # space so semantically similar chunks can be found with similarity search.
@@ -187,9 +186,6 @@ class RagAssistant:
         retrieval_k: Number of matching chunks the retrieval tool returns per call.
         system_prompt_path: Custom system prompt file to use instead of the
             bundled default at DEFAULT_SYSTEM_PROMPT_PATH.
-        telemetry: Active TelemetrySession to record model-call/retrieval
-            events to, or None (default, if --usage not passed) to skip
-            attaching a callback handler entirely.
         max_agent_steps: Hard ceiling on LangGraph steps (one model call or
             one tool call each) for a single answer() call, passed as
             recursion_limit. See DEFAULT_MAX_AGENT_STEPS above for why this
@@ -208,7 +204,6 @@ class RagAssistant:
         model: BaseChatModel,
         retrieval_k: int = DEFAULT_RETRIEVAL_K,
         system_prompt_path: Path | None = None,
-        telemetry: TelemetrySession | None = None,
         max_agent_steps: int = DEFAULT_MAX_AGENT_STEPS,
         max_agent_attempts: int = DEFAULT_MAX_AGENT_ATTEMPTS,
     ) -> None:
@@ -218,11 +213,6 @@ class RagAssistant:
         self.max_agent_steps = max_agent_steps
         self.max_agent_attempts = max_agent_attempts
         self._retrieval_tool = build_retrieval_tool(vector_store, retrieval_k)
-        self._telemetry_handler = (
-            TelemetryCallbackHandler(telemetry, retrieval_tool_name=self._retrieval_tool.name)
-            if telemetry is not None
-            else None
-        )
 
         self._agent = create_agent(
             model,
@@ -253,11 +243,8 @@ class RagAssistant:
         """
 
         # RunnableConfig, not a bare dict: it's the TypedDict .invoke() declares,
-        # so both keys set below are checked against it instead of being opaque.
+        # so the key set below is checked against it instead of being opaque.
         invoke_config: RunnableConfig = {"recursion_limit": self.max_agent_steps}
-
-        if self._telemetry_handler is not None:
-            invoke_config["callbacks"] = [self._telemetry_handler]
 
         # InputAgentState for the same reason invoke_config is a RunnableConfig:
         # it's the TypedDict create_agent's graph declares as its input schema.

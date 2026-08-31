@@ -23,7 +23,6 @@ import argparse
 import os
 import re
 import subprocess
-from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,7 +30,6 @@ from dotenv import load_dotenv
 from qylo import string_table
 from qylo.response_contract import ModelResponse, ResponseKind
 from qylo.model_provider import ModelProvider, build_chat_model, get_model_provider
-from qylo.telemetry import Stage, TelemetrySession, measure
 
 
 DEFAULT_DOCS_PATH = Path("data") / "documents"
@@ -86,22 +84,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=string_table.HELP_SYSTEM_PROMPT,
     )
-    parser.add_argument(
-        "--usage",
-        action="store_true",
-        help=string_table.HELP_USAGE,
-    )
-    parser.add_argument(
-        "--usagelog",
-        nargs="?",
-        const="",
-        default=None,
-        help=string_table.HELP_USAGELOG,
-    )
-    args = parser.parse_args()
-    if args.usagelog is not None and not args.usage:
-        parser.error(string_table.MSG_USAGELOG_REQUIRES_USAGE)
-    return args
+    return parser.parse_args()
 
 
 def stage_prefix(stage_tag: str, locality_tag: str) -> str:
@@ -230,9 +213,6 @@ def main() -> None:
 
     source_path = args.doc or args.documents or DEFAULT_DOCS_PATH
 
-    # Telemtry to display tokens in/out, etc.
-    telemetry = TelemetrySession() if args.usage else None
-
     #What provider being used? Azure or local? Azure local only supported for now.
     provider = get_model_provider()
 
@@ -253,52 +233,38 @@ def main() -> None:
                                 split_documents,
                             )
 
-    # we measure telemtry
-    with measure(telemetry, Stage.INGESTION) as ingestion_metrics:
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SCANNING.format(path=source_path))
-        document_paths = scan_document_paths(source_path)
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_FOUND_DOCUMENTS.format(count=len(document_paths)))
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SCANNING.format(path=source_path))
+    document_paths = scan_document_paths(source_path)
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_FOUND_DOCUMENTS.format(count=len(document_paths)))
 
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_LOADING_DOCUMENTS)
-        docs = load_documents(document_paths)
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_LOADED_DOCUMENTS.format(count=len(docs)))
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_LOADING_DOCUMENTS)
+    docs = load_documents(document_paths)
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_LOADED_DOCUMENTS.format(count=len(docs)))
 
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SPLITTING_DOCUMENTS)
-        # Chunk size/overlap come from DEFAULT_CHUNK_SIZE/DEFAULT_CHUNK_OVERLAP
-        # in rag.py, overridable per-machine via .env - see split_documents().
-        chunks = split_documents(docs)
-        print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SPLIT_DOCUMENTS.format(count=len(chunks)))
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SPLITTING_DOCUMENTS)
+    # Chunk size/overlap come from DEFAULT_CHUNK_SIZE/DEFAULT_CHUNK_OVERLAP
+    # in rag.py, overridable per-machine via .env - see split_documents().
+    chunks = split_documents(docs)
+    print(stage_prefix(string_table.TAG_INGESTION, string_table.TAG_LOCAL) + string_table.MSG_SPLIT_DOCUMENTS.format(count=len(chunks)))
 
-        ingested_text = "".join(doc.page_content for doc in docs)
-        ingestion_metrics.payload_bytes = len(ingested_text.encode("utf-8"))
-        ingestion_metrics.content_for_hash = ingested_text
-        ingestion_metrics.preview_text = f"{len(document_paths)} file(s) -> {len(chunks)} chunk(s)"
+    print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_LOADING_EMBEDDING_MODEL)
+    embeddings = build_embeddings()
 
-    with measure(telemetry, Stage.EMBEDDING) as embedding_metrics:
-        print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_LOADING_EMBEDDING_MODEL)
-        embeddings = build_embeddings()
-
-        print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_BUILDING_VECTOR_STORE)
-        vector_store = build_vectors(chunks, embeddings)
-        print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_VECTOR_STORE_READY.format(count=len(chunks)))
-
-        embedded_text = "".join(chunk.page_content for chunk in chunks)
-        embedding_metrics.payload_bytes = len(embedded_text.encode("utf-8"))
-        embedding_metrics.content_for_hash = embedded_text
-        embedding_metrics.preview_text = f"{len(chunks)} chunk(s) embedded"
+    print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_BUILDING_VECTOR_STORE)
+    vector_store = build_vectors(chunks, embeddings)
+    print(stage_prefix(string_table.TAG_EMBEDDING, string_table.TAG_LOCAL) + string_table.MSG_VECTOR_STORE_READY.format(count=len(chunks)))
 
     provider = get_model_provider()
     
     print(stage_prefix(string_table.TAG_MODEL_CALL, cloud_tag) + string_table.MSG_CONNECTING.format(provider=provider.value))
     
-    model = build_chat_model(telemetry=telemetry)
+    model = build_chat_model()
     
     assistant = RagAssistant(
                             vector_store=vector_store,
                             model=model,
                             retrieval_k=args.k,
                             system_prompt_path=args.system_prompt,
-                            telemetry=telemetry,
                         )
 
     print(stage_prefix(string_table.TAG_MODEL_CALL, cloud_tag) + string_table.MSG_THINKING)
@@ -321,18 +287,6 @@ def main() -> None:
 
     if execute_flag:
         apply_exe_request(model_response, yolo=args.yolo)
-
-    if telemetry is not None:
-        print()
-        
-        print(telemetry.stat_summary())
-        
-        # provide log for additional info
-        if args.usagelog is not None:
-            log_path = Path(args.usagelog or f"{date.today().isoformat()}-usage.log")
-            telemetry.write_log(log_path)
-
-            print(string_table.MSG_USAGE_LOG_WRITTEN.format(path=log_path))
 
 # -~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~
 if __name__ == "__main__":

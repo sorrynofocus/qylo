@@ -4,6 +4,12 @@ This directory packages the application itself. It is the counterpart to
 [`../azure/`](../azure/README.md), which provisions the *cloud model* — see
 [`../README.md`](../README.md) for how the two relate.
 
+> **Status, 2026-08-30: deferred, not broken.** No build here has failed. This path has not been
+> rebuilt or re-verified since Phase B of the readability refactor removed telemetry, so the
+> air-gap result recorded below predates that change — a gap in evidence, not a defect. Docker
+> builds are not a blocker for the refactor, and the workflow is `workflow_dispatch`-only anyway.
+> See `docs/BACKLOG.md`, "Deployment", for the direction being weighed.
+
 ## Why this exists
 
 The `## Setup` section of the [root README](../../README.md) describes a working install:
@@ -75,7 +81,7 @@ indefinitely during the model download — neither mentions memory. See
 | --- | --- | --- |
 | llama.cpp (`llama-server`, `llama-cli`) | ~20MB | Built from a pinned source ref, CPU-only |
 | `sentence-transformers/all-MiniLM-L6-v2` | ~88MB | Embeddings are **always** local — needed even in Azure mode |
-| `cl100k_base` tiktoken BPE table | ~1.7MB | `--usage` must not turn an offline run into a hard failure |
+| `cl100k_base` tiktoken BPE table | ~1.7MB | `langchain-openai` depends on tiktoken; a lazy vocab download must not turn an offline run into a hard failure |
 | Python 3.12 + all `uv.lock` dependencies | ~1.4GB | CPU-only torch; the CUDA stack is pinned out |
 | Qwen3.5-9B Q5_K_M GGUF | ~6.5GB | Optional — see the build arg below |
 
@@ -331,7 +337,6 @@ even though llama.cpp ignores its value.
 | `ModuleNotFoundError: No module named 'qylo'` | The venv was built with an editable install, whose `.pth` points at a source tree the runtime stage does not copy | `uv sync` must use `--no-editable`; already set in the `python-deps` stage |
 | `failed to parse stage name "weights-"` | `BAKE_LLM_WEIGHTS` declared after a `FROM`, so it is stage-scoped and invisible to `FROM` | The `ARG` must stay above the first `FROM` |
 | `ENOSPC` during a CI build | Free-runner disk exhausted by the 6.5GB model | See the diagnostic ladder in `.github/workflows/docker.yml` |
-| Permission denied writing `--usagelog` | Bind-mount source created root-owned by Docker | `logs/` is committed with a `.gitkeep` so it exists with your ownership |
 | Local answers are repetitive, rambling, or repeat a "final answer" several times | Context window exhausted mid-agent-loop; llama-server truncated the conversation **without erroring** | Check `truncated =` in `docker logs <llama container>`. Raise `LLAMA_CTX` (default 16384). Do **not** assume the model is at fault |
 | `llama` never leaves `starting`; `--profile local` hangs on the dependency and never runs | The healthcheck probed with `curl`, which is **not in the runtime image** — only `libcurl4`, the shared library llama-server links against. `wget` is absent too (both exit 127) | Fixed: the probe is now `python3 -c "import urllib.request; ..."`, which needs no new package. To see a probe's own output: `docker inspect --format '{{json .State.Health}}' <id>` |
 | Local run inside a container fails with a connection error to `localhost:8080` | `.env` sets `LOCAL_OPENAI_BASE_URL=http://localhost:8080/v1`, which inside a container means *that container* | Compose overrides it to `http://llama:8080/v1`. With bare `docker run`, pass `-e LOCAL_OPENAI_BASE_URL=http://<server-container>:8080/v1` |

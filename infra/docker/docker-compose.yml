@@ -60,8 +60,6 @@ services:
     volumes:
       # The knowledge base, read-only. Swap corpora without rebuilding the image.
       - ../../data/documents:/app/data/documents:ro
-      # Where --usagelog writes.
-      - ../../logs:/app/logs
     depends_on:
       llama:
         condition: service_healthy

@@ -67,13 +67,13 @@ through Azure. Notes toward it:
 
 ### The tiktoken cache outlived telemetry, deliberately
 
-*Decided 2026-08-30, during the readability refactor. **The removal itself has not happened yet** —
-this records the decision that governs it.* Phase B deletes telemetry entirely, and `telemetry.py`
-is the only thing in `src/` that imports `tiktoken`. When it goes, the tokenizer cache baked into
-the image **stays**: the cache-warm at `infra/docker/Dockerfile:188-191`, its `COPY` at `:266`, the
-offline assertion at `.github/workflows/docker.yml:162-169`, and the row in
-`infra/docker/README.md:78` are all retained. Only the direct `tiktoken` declaration in
-`pyproject.toml` goes — the package will still install, because `langchain-openai` requires it.
+*Decided 2026-08-30, during the readability refactor; carried out in Phase B the same day.*
+Phase B deleted telemetry entirely, and `telemetry.py` was the only thing in `src/` that imported
+`tiktoken`. The tokenizer cache baked into the image **stayed**: the cache-warm in
+`infra/docker/Dockerfile`, its `COPY` into the runtime stage, the offline assertion in
+`.github/workflows/docker.yml`, and the row in `infra/docker/README.md` are all still there. Only
+the direct `tiktoken` declaration in `pyproject.toml` went — the package still installs, because
+`langchain-openai` requires it (confirmed: it is still resolved in `uv.lock`).
 
 **Why it does not come out with the feature that motivated it.** `langchain_openai` imports tiktoken
 and exposes token-counting paths, so it is *not established* that an air-gapped answer succeeds
@@ -132,6 +132,78 @@ Worth one measured run each rather than guessing.
   is not free.
 
 ---
+
+## Deployment
+
+### Docker is deferred, not broken
+
+*2026-08-30.* Docker packaging has not been rebuilt or re-verified since Phase B removed
+telemetry. **No build has failed.** The user is weighing setting the Docker path aside during the
+refactor because it *may* prove troublesome to deploy — anticipated difficulty, not an observed
+one. Nobody should write it up as a defect, and deferral does not un-verify the air-gap result
+recorded in `docs/TROUBLESHOOT.MD` (2026-08-08) — it just means that result predates Phase B.
+
+Assets are preserved: `infra/docker/`, the `workflow_dispatch` workflow, the tokenizer cache and
+its offline CI assertion all stay. Revisit when there is a concrete need for that packaging or
+for offline deployment.
+
+### A FastAPI service in front of the existing core
+
+*Proposal, not an approved specification. Nothing here is authorized.* Raised by the user
+2026-08-30: a FastAPI backend, possibly with a Next.js frontend on Vercel, after the refactor.
+
+**Phase C first, and the reason is structural rather than tidiness.** Today `cli.py::main()` owns
+the whole sequence: scan → load → split → embed → build vector store → build model → construct
+`RagAssistant` → answer → gate execution. A server needs the first five to happen *once at
+startup* and only `answer()` to happen per request. Phase C's responsibility split is precisely
+that seam. Building an API against the current `main()` means writing it twice.
+
+**What the code already gives a server, and this is checkable today, not aspiration:**
+
+- `RagAssistant.answer()` returns a `ModelResponse` (`kind` / `content` / `command`), and the
+  structured path validates through the Pydantic `ContractResponse`. That is already a JSON
+  response shape, and Pydantic is FastAPI's native currency. The HTTP layer is genuinely thin.
+- Ingestion is already decoupled from answering at the `vector_store` argument. One built index
+  can back one long-lived `RagAssistant`.
+- `answer()` keeps no per-call state on `self` — every value in it is a local. So one instance
+  can serve many requests. **Unverified under concurrency**, and the underlying chat client and
+  compiled graph are the things to check before assuming otherwise.
+
+**What a server changes that the CLI never had to answer:** rebuild-every-run is the CLI's
+biggest cost and a listed limitation in `README.md`; at startup it becomes a one-time cost and
+stops mattering. In exchange, index *staleness* becomes a real question for the first time. Decide
+refresh behaviour explicitly — startup-only, on a signal, or on a timer — rather than inheriting
+"always fresh" by accident.
+
+**Execution must be absent from the server, not merely disabled.** `run_command` has no allowlist
+and no audit log, and the whole `CMD`/`UNSAFE` safety model assumes a human at a terminal on their
+own machine opting in per-run with `--exe`/`--yolo`. Neither assumption survives an HTTP boundary.
+The API should return the composed command as *data* and let the client decide. That is a cleaner
+story than the CLI's, and it should be a hard constraint on the design, not a default someone can
+flip with an env var.
+
+**Vercel hosts the frontend. It cannot host this backend.** Every request embeds the query
+locally, so torch and `sentence-transformers` are on the request path; combined with rebuilding
+or loading the index, that does not fit a serverless function's cold-start and size envelope. Run
+FastAPI under Uvicorn as a persistent service somewhere else. A useful arrangement if Next.js on
+Vercel does happen: have its server-side route handlers proxy to FastAPI, which keeps the API key
+server-side and sidesteps CORS entirely.
+
+**Resource reality, stated plainly.** Dropping Docker simplifies packaging; it does not reduce
+memory. The floor is the local embedding stack — torch alone is the bulk of the ~1.4GB of
+installed dependencies. **You cannot avoid it by persisting the index**, because the *query* still
+has to be embedded on every request. The only real lever is hosted embeddings, and that is its own
+change: it trades provider cost, a network dependency, and sending document content to that
+provider, and any embedding-model change needs retrieval quality re-verified. Multiple Uvicorn
+workers duplicate the model in memory — prefer one worker with bounded concurrency until measured.
+
+**The cheap next step, whenever this is picked up:** measure RSS after startup with the index
+loaded, plus startup time and single-request latency, on the host. It is local, free, needs no
+provider and no hosting decision, and it is the number every other question here depends on. No
+server size, cost, or host has been chosen, and none should be until that exists.
+
+Reference: [FastAPI: run it manually](https://fastapi.tiangolo.com/deployment/manually/) and
+[deployment concepts](https://fastapi.tiangolo.com/deployment/concepts/).
 
 ## Model behaviour
 

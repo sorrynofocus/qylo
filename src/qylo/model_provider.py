@@ -29,8 +29,7 @@
 # LOCAL_MODEL_NAME=qwen3.5-9b
 #
 # From code:
-# model = build_chat_model()                   # default http client, no telemetry
-# model = build_chat_model(telemetry=session)  # + wire-level byte/retry accounting
+# model = build_chat_model()
 #
 
 from __future__ import annotations
@@ -38,14 +37,12 @@ from __future__ import annotations
 import os
 from enum import Enum
 
-import httpx
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from pydantic import SecretStr
 
 from qylo import string_table
-from qylo.telemetry import TelemetrySession, httpx_event_hooks
 
 
 class ModelProvider(Enum):
@@ -68,14 +65,9 @@ class ModelProvider(Enum):
 
 
 
-def build_chat_model(telemetry: TelemetrySession | None = None) -> BaseChatModel:
+def build_chat_model() -> BaseChatModel:
     """
     Build the configured chat model.
-
-    Parameters:
-        telemetry: Active TelemetrySession to attribute wire-level HTTP bytes
-            and retries to, or None (the default, i.e. --usage not passed) to
-            leave the client exactly as it was before telemetry existed.
 
     Returns:
         A LangChain chat model. RagAssistant can call .invoke(messages) on this
@@ -87,16 +79,16 @@ def build_chat_model(telemetry: TelemetrySession | None = None) -> BaseChatModel
     provider = get_model_provider()
 
     if provider is ModelProvider.AZURE:
-        return build_azure_chat_model(telemetry)
+        return build_azure_chat_model()
 
     if provider is ModelProvider.LOCAL:
-        return build_local_chat_model(telemetry)
+        return build_local_chat_model()
 
     # if provider is ModelProvider.OPENAI:
-    #     return build_openai_chat_model(telemetry)
+    #     return build_openai_chat_model()
     #
     # if provider is ModelProvider.CUSTOM:
-    #     return build_custom_chat_model(telemetry)
+    #     return build_custom_chat_model()
 
     raise ValueError(string_table.MSG_UNSUPPORTED_PROVIDER.format(provider=provider))
 
@@ -124,7 +116,7 @@ def get_model_provider() -> ModelProvider:
     )
 
 
-def build_azure_chat_model(telemetry: TelemetrySession | None = None) -> AzureChatOpenAI:
+def build_azure_chat_model() -> AzureChatOpenAI:
     """
     Build an Azure OpenAI chat model from .env settings.
 
@@ -133,9 +125,6 @@ def build_azure_chat_model(telemetry: TelemetrySession | None = None) -> AzureCh
         AZURE_OPENAI_API_KEY
         AZURE_OPENAI_CHAT_DEPLOYMENT
         AZURE_OPENAI_API_VERSION
-
-    Parameters:
-        telemetry: See build_chat_model().
     """
 
     endpoint = env_required(string_table.ENV_AZURE_ENDPOINT)
@@ -150,11 +139,10 @@ def build_azure_chat_model(telemetry: TelemetrySession | None = None) -> AzureCh
         azure_deployment=deployment,
         api_version=api_version,
         max_retries=2,
-        http_client=_telemetry_http_client(telemetry),
     )
 
 
-def build_local_chat_model(telemetry: TelemetrySession | None = None) -> ChatOpenAI:
+def build_local_chat_model() -> ChatOpenAI:
     """
     Build a local OpenAI-compatible chat model.
 
@@ -170,9 +158,6 @@ def build_local_chat_model(telemetry: TelemetrySession | None = None) -> ChatOpe
 
     llama.cpp usually ignores the API key, but the OpenAI client expects a
     value, so the default is "local-not-used".
-
-    Parameters:
-        telemetry: See build_chat_model().
     """
 
     base_url = env_required(string_table.ENV_LOCAL_BASE_URL)
@@ -190,21 +175,7 @@ def build_local_chat_model(telemetry: TelemetrySession | None = None) -> ChatOpe
         api_key=SecretStr(api_key),
         model=model_name,
         max_retries=2,
-        http_client=_telemetry_http_client(telemetry),
     )
-
-
-def _telemetry_http_client(telemetry: TelemetrySession | None) -> httpx.Client | None:
-    """
-    Build httpx.Client with wire-level telemetry hooks, or None when telemetry is off.
-
-    None lets AzureChatOpenAI/ChatOpenAI build their own default http_client,
-    identical to behavior before telemetry existed.
-    """
-
-    if telemetry is None:
-        return None
-    return httpx.Client(event_hooks=httpx_event_hooks(telemetry))
 
 
 def env_required(name: str) -> str:

@@ -133,27 +133,9 @@ MSG_CMD_NO_TEXT = "The model returned CMD but no command text. Nothing was run."
 MSG_UNSAFE_NO_COMMAND = "The model marked this unsafe but did not provide a command. Nothing was run."
 MSG_UNSAFE_BLOCKED = "Unsafe command blocked. Re-run with --exe --yolo to execute it."
 
-# parse_args() --usage/--usagelog
-HELP_USAGE = "Print a per-stage AI-usage telemetry summary (calls, bytes, tokens, retries) after the answer."
-HELP_USAGELOG = (
-    "Also write telemetry events to a JSON-lines log file. Requires --usage. "
-    "Optional path; defaults to <today's date>-usage.log."
-)
-MSG_USAGELOG_REQUIRES_USAGE = "--usagelog requires --usage."
-
 # stage_prefix() tags
 TAG_INGESTION = "[ingestion]"
 TAG_EMBEDDING = "[embedding]"
 TAG_MODEL_CALL = "[call model]"
 TAG_LOCAL = "[local]"
 TAG_CLOUD = "[cloud]"
-
-# --- telemetry.py ---
-
-# TelemetrySession.stat_summary()
-MSG_USAGE_SUMMARY_TITLE = "AI usage summary"
-MSG_USAGE_SUMMARY_HEADER = "stage      calls     bytes  est.tok      in     out   total       ms retries"
-MSG_USAGE_SUMMARY_NA = "n/a"
-
-# TelemetrySession.write_log()
-MSG_USAGE_LOG_WRITTEN = "Wrote usage log: {path}"

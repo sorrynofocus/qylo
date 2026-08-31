@@ -4298,3 +4298,59 @@ The one thing worth adding, because it is specific to the timings: **step-count 
 wall clock more than CPU count does.** The same question took 2 model calls (284s) on one run
 and 3 (628s) on another. Any CI timeout must be sized for the worst case, not for the numbers
 in the table.
+
+
+# 2026-08-30 - Telemetry removed (refactor Phase B)
+
+`--usage`, `--usagelog` and `src/qylo/telemetry.py` are gone, along with the direct `tiktoken`
+declaration in `pyproject.toml`. `build_chat_model()` and `RagAssistant.__init__` no longer take
+a `telemetry=` argument, and `model_provider.py` no longer builds a custom `httpx.Client`.
+Decided with the user during the readability refactor: consolidating the instrumentation was
+considered and rejected in favour of deleting it.
+
+## What this means for the earlier entries in this file
+
+Several entries above describe telemetry code that no longer exists - most directly
+**"Telemetry preview can fall back to system-prompt text"** (2026-08-05). They are kept, because
+this file is a record of what happened, not a description of the current tree. Read them as
+history. The measurements they report were real when taken; the code they name is not there any
+more.
+
+## What deliberately did NOT go
+
+The `cl100k_base` tiktoken cache baked into the Docker image, its `COPY` into the runtime stage,
+and the `--network none` assertion in `.github/workflows/docker.yml`. `langchain_openai` still
+depends on tiktoken and exposes token-counting paths, so it is *not* established that an
+air-gapped answer succeeds without the cache - and the current workflow runs no inference, so it
+could not establish it either. Removing the cache needs its own change gated on an end-to-end
+air-gapped question. Recorded in `docs/BACKLOG.md`, "The tiktoken cache outlived telemetry,
+deliberately".
+
+`logs/` and its compose bind mount existed only for `--usagelog` and were removed with it. The
+`mkdir -p /app/logs` in the Dockerfile was left in place: it is inert, and changing the Dockerfile
+costs a ~33 minute `workflow_dispatch` run to re-verify.
+
+## Verification
+
+Offline only, and deliberately so - no paid call was made for this change. `uv run pytest` 67
+passed, `python -m compileall src` clean, `uv lock` resolved 95 packages with `tiktoken` still
+present transitively via `langchain-openai`, `uv run qylo --help` shows the flag list without
+`--usage`/`--usagelog`. A live grounded question against Azure has **not** been run and is the
+outstanding check; compare it against the Phase A baseline in the refactor plan, not against an
+ideal.
+
+
+# 2026-08-30 - Addendum: Phase B live smoke check
+
+The Phase B entry above says the live grounded question had not been run. That was true when it
+was written; it is no longer. Correcting it here rather than there, because this file is
+append-only.
+
+The user ran `uv run qylo "What is flogger and what logging features does it support?"` and
+reports it answered as expected in ~30 seconds.
+
+**What that establishes, precisely: the live path still works with telemetry removed.** Nothing
+more. It is n=1 on one grounded question, it is not a substitute for the 20-case
+`tools/score_contract.py` baseline (17/20 answered, 15/20 classified) which has not been re-run,
+and no agent saw the answer text or timed the run - the runtime and the verdict are the user's
+report. Factual accuracy and citation quality were not independently reviewed.

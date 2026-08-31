@@ -16,7 +16,6 @@ dependencies = [
     "pypdf>=5.0.0",
     "python-dotenv>=1.1.0",
     "sentence-transformers>=3.0.0",
-    "tiktoken>=0.13.0",
     # Not imported directly - it arrives via sentence-transformers. Declared here
     # only because [tool.uv.sources] binds to direct dependencies, and the CPU
     # index pin below is what keeps the CUDA stack out of Linux builds.

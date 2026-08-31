@@ -131,9 +131,9 @@ across stochastic runs, not a guaranteed ordering between any two. Passing a rou
 **Tokens: an inherited ~16k-per-agent-run figure, extrapolating to ~320k for a default run.**
 Treat this as unverified. `score_contract.py` collects no usage totals of its own, the older
 "per run" wording never established its unit, and the underlying measurement has not been
-located. The one instrument that could produce a real number is `qylo --usage`, and Phase B of
-the readability refactor deletes it — so measure before that lands, or read the totals from the
-provider's own usage reporting afterwards. What is structurally certain: each additional model call in the tool-calling loop resends the whole
+located. The one instrument that could have produced a real number was `qylo --usage`, which Phase
+B of the readability refactor removed — so the totals now have to come from the provider's own
+usage reporting. What is structurally certain: each additional model call in the tool-calling loop resends the whole
 growing message history, so a 2-call run sends the system prompt twice, not once.
 
 **Money: cents, with the exact figure depending on a split nobody has measured.** Using only

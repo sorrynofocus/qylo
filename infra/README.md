@@ -8,6 +8,12 @@ frequently used **together**, so read this page before assuming you need to pick
 | [`azure/`](azure/README.md) | The **cloud resource** — an Azure OpenAI `gpt-5-nano` model deployment, via Bicep | Azure CLI (`az`) on `PATH` |
 | [`docker/`](docker/README.md) | The **application** — a container image with every dependency baked in | Docker |
 
+> **Status, 2026-08-30: the `docker/` path is deferred, not broken.** Nothing here has failed.
+> It simply has not been rebuilt or re-verified since the telemetry removal, and the deployment
+> direction is under discussion — see `docs/BACKLOG.md`, "Deployment". The assets, the
+> `workflow_dispatch` workflow and the recorded air-gap result all stay put. `azure/` is
+> unaffected: it provisions the model, not the packaging.
+
 ## They are complementary, not alternatives
 
 This is the part that trips people up. `azure/` creates *the model you talk to*. `docker/`
