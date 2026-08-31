@@ -69,7 +69,7 @@ Known and deliberate, not oversights:
 - **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `docs/TROUBLESHOOT.MD`'s "Two open gaps."
 - **Local inference is slow without a GPU.** ~4.9 tok/s on the hardware above means minutes per answer, not seconds. See [Provider comparison](docs/USAGE.md#provider-comparison-measured).
 - **Token estimates are approximate.** `cl100k_base` is applied uniformly across providers; the provider-reported counts are the billing truth.
-- **No automated test suite.** Verification is smoke-test style.
+- **Unit tests only; nothing tests a real answer.** `tests/` covers model-free behaviour — the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and the strings the model reads. Nothing exercises an actual model call: CI builds the image but runs no inference, so a change that breaks retrieval or the agent loop still needs a human asking a question.
 
 Reasonable expectations: this answers questions about a folder of documentation accurately and with citations, and composes plausible CLI commands from documented tools. It is not a production knowledge base, not a general coding agent, and not a safe autonomous command executor.
 
@@ -160,13 +160,16 @@ The package artifact will be written to `dist`.
 
 ## Verification
 
-No automated test suite exists yet; verification is smoke-test style (see `docs/TROUBLESHOOT.MD`):
+`tests/` holds model-free unit tests — no provider, no network, no cost. Run those first, then the smoke checks (see `docs/TROUBLESHOOT.MD` for known failure modes):
 
 ```sh
+uv run pytest
 python -m compileall src
 uv lock
 uv run qylo --help
 ```
+
+The tests cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and golden captures of the strings the model reads. They are not end-to-end: answering a real question is still a manual check.
 
 ## References
 - https://docs.langchain.com/oss/python/integrations/chat/azure_chat_openai

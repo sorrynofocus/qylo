@@ -65,6 +65,27 @@ through Azure. Notes toward it:
   collaborators. `infra/docker/README.md` says "No secrets enter the image", which stays true but
   becomes misleading — secrets would enter the *runner*. That line needs a companion sentence.
 
+### The tiktoken cache outlived telemetry, deliberately
+
+*Decided 2026-08-30, during the readability refactor. **The removal itself has not happened yet** —
+this records the decision that governs it.* Phase B deletes telemetry entirely, and `telemetry.py`
+is the only thing in `src/` that imports `tiktoken`. When it goes, the tokenizer cache baked into
+the image **stays**: the cache-warm at `infra/docker/Dockerfile:188-191`, its `COPY` at `:266`, the
+offline assertion at `.github/workflows/docker.yml:162-169`, and the row in
+`infra/docker/README.md:78` are all retained. Only the direct `tiktoken` declaration in
+`pyproject.toml` goes — the package will still install, because `langchain-openai` requires it.
+
+**Why it does not come out with the feature that motivated it.** `langchain_openai` imports tiktoken
+and exposes token-counting paths, so it is *not established* that an air-gapped answer succeeds
+without the cache. Nor can the current workflow establish it: it runs no inference at all (see "CI
+proves the image builds, not that it works" above), so a green run would prove only that its
+remaining checks passed — not that a question can still be answered offline with the cache gone.
+
+Removing it therefore needs its own change, gated on an end-to-end air-gapped question that
+actually reaches the model. Worth doing eventually: it is a build stage and a ~1.7MB layer serving
+a dependency nothing in this project calls directly. Not worth doing blind — the air-gap property
+is the expensive thing to re-establish, at ~33 min per `workflow_dispatch` run.
+
 ### GHA cache is upside-down
 
 `cache-to: type=gha,mode=max` writes ~9.6GB against a **10GB per-repo quota**, so it sits at the

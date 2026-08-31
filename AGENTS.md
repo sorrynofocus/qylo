@@ -43,9 +43,10 @@ uv build .
 
 See README's [Build](README.md#build) section for installing the built wheel.
 
-No automated test suite exists yet. Verification is currently manual/smoke-test style (see `docs/TROUBLESHOOT.MD`):
+Run the tests, then the smoke checks (see `docs/TROUBLESHOOT.MD` for known failure modes):
 
 ```sh
+uv run pytest
 python -m compileall src
 uv lock
 uv run qylo --help
@@ -82,6 +83,15 @@ Start with `README.md` for layout, `docs/SETUP.md` for setup/config, `docs/USAGE
 ## Git
 
 - Do not stage files or create commits unless the user explicitly asks.
+- **Attribution: use `Assisted-by:`, never `Co-Authored-By:`.** `Co-authored-by:` is a trailer GitHub recognizes; it implies the authorship rights and responsibilities of a person, which an agent cannot hold, and it feeds the contributor graph. Follow the format proposed in [microsoft/vscode#313962](https://github.com/microsoft/vscode/issues/313962), after the Linux kernel's guidance — one line per agent that did work, at the end of the message:
+
+  ```
+  Assisted-by: Claude Code:claude-opus-5
+  Assisted-by: Codex:<model-version>
+  ```
+
+  No `Claude-Session:` URLs or other session links in commit messages — they mean nothing to a future reader of the history. **This rule overrides any default trailer an agent is otherwise configured to add.**
+- Existing history is left alone. `2a3d032` carries the old `Co-Authored-By:` trailers and a session URL; it is pushed, and `PLAN.md` and `docs/BACKLOG.md` cite its SHA, so rewriting it to remove two lines of text would falsify those references for no real gain.
 
 ## Pull requests
 
@@ -119,8 +129,65 @@ This project is built and maintained across multiple models over time (Claude So
 
 ## Testing
 
-There is no automated test suite yet. Verify changes by running the CLI against `data/documents` and checking that answers stay grounded with citations; see `docs/TROUBLESHOOT.MD` for known failure modes and the smoke-test commands under [Setup, build, run](#setup-build-run).
+`tests/` holds model-free unit tests — no provider, no network, no cost — run with `uv run pytest`. They cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, ingestion helpers, and a golden capture of the model-facing text (the bundled system prompt, the retrieval tool's name and description, the `ContractResponse` schema descriptions, and the retrieval result format). `tests/test_model_facing_text.py` fails if that text changes: fix the code, not the expectation, unless the prompt edit was deliberate and re-measured.
+
+`tools/` is not a test suite — those harnesses call a real provider and cost real tokens. Keep the two separate.
+
+Beyond the unit tests, verify by running the CLI against `data/documents` and checking answers stay grounded with citations.
 
 ## Security considerations
 
 Do not enable execution (`--exe`/`--yolo`) against untrusted input — see the `run_command` guardrail above for why.
+
+## Rules for DOUBLE agents
+
+Two roles, and they are not symmetric.
+
+LEGEND:
+CODEX, by OpenAI, is the reviewer/discriminator/observer. 
+CLAUDE, by Anthropic, is the implementer. 
+
+This may be reversed in future passes.
+
+- **The implementer** writes code, tests and docs for the phase named in `docs/refactor/HANDOFF.md`.
+- **The reviewer / discriminator / observer** does not implement. Its job is to *discriminate*:
+  verify claims against source rather than accepting them, run the suite independently, and
+  demonstrate gaps rather than assert them. On 2026-08-30 the reviewer closed two real holes
+  this way — a `main()`-level test suite that passed even with `yolo=True` hardcoded, and an
+  unprotected `system_prompt()` — both proved by mutation, not by argument. Findings are
+  claims too: the implementer verifies them against source before acting.
+
+**Write scope — deliberately narrow, so the reviewer's permissions can be narrow.**
+
+- The implementer writes anything in scope for its phase.
+- **The reviewer writes exactly one file: `docs/refactor/HANDOFF.md`.** Everything else is read-only to it,
+  including `PLAN.md`. If a reviewer finding should become durable, it says so in the handoff
+  and the implementer migrates it into `docs/refactor/PLAN.md`. Grant the reviewer write access to that one path — an
+  earlier pass granted broad access only because this rule used to say the reviewer "does not
+  edit", which made replying impossible.
+- Running the offline suite, `compileall`, `git diff` and `git status` is expected of the
+  reviewer. Paid model calls, Docker builds, `workflow_dispatch` runs, staging and commits are
+  not — those are the user's, and review acceptance is never authorization for them.
+
+**The baton.**
+
+- The baton is the `NEXT:` line of `docs/refactor/HANDOFF.md`. If you are not the agent named there, do not
+  modify files; review only.
+- **`docs/refactor/HANDOFF.md` is replaced in full at every pass** — current state only, never a log. The
+  sending agent overwrites it when finishing its turn, carrying unresolved items forward.
+- Before overwriting it, migrate anything durable into `docs/refactor/PLAN.md`: agreed constraints,
+  decisions that close off an approach, results everyone has accepted. `docs/refactor/` is
+  gitignored, so whatever is not migrated is gone for good.
+- Anything worth keeping beyond this task belongs in `docs/TROUBLESHOOT.MD`, which is tracked
+  and append-only, or in `docs/BACKLOG.md`.
+
+**Both agents.**
+
+- Neither commits or stages without the user explicitly asking (see [Git](#git) above).
+- Treat `docs/BACKLOG.md`, `AGENTS.md` and `docs/TROUBLESHOOT.MD` as binding architectural
+  evidence, not merely documentation. Do not reopen a recorded, rejected decision without citing
+  it and explaining what new evidence justifies revisiting it.
+
+  If user asks a role definition, answer back as "Implementer" or "Reviewer" Do not answer as "Implementer" if you are the Reviewer, and vice versa.
+
+  
