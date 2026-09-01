@@ -118,11 +118,6 @@ Worth one measured run each rather than guessing.
 
 ## Docs
 
-- **`TROUBLESHOOT.MD` owes two dated entries.** (1) The naming decision, including the rejected
-  candidates and why — `incant`, `qrun`, `askr`, `ragu`, `farad`, `sygil`, `orac`, `wardn`, `quta`,
-  `mango`, `manqo` — so nobody repeats the collision search. (2) The first CI run's findings: what
-  it did and did not prove, the cache cost, and the `/app/src` false green. Append only; never edit
-  in place.
 - **Mermaid line breaks.** `ARCHITECTURE.md` lines ~174-199 use `\n` in 14 flowchart node labels;
   the documented Mermaid form is `<br/>` and support is renderer-dependent. Check the rendered page
   on GitHub first — if labels show a literal `\n`, it is a mechanical find-replace. The sequence
