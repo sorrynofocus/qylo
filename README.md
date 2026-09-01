@@ -67,7 +67,7 @@ Known and deliberate, not oversights:
 - **Executed commands are not sandboxed or allowlisted.** `execution.py::run_command` runs through the system shell with `shell=True`. The safety model is the `CMD`/`UNSAFE` contract plus explicit `--exe`/`--yolo` opt-in — there is no allowlist, no deny-pattern matching, and no audit log. This is a known gap, documented rather than hidden.
 - **Ungrounded command requests rely on model judgment.** When a command request matches no document, there's no `Safety:` tag to check and nothing deterministic backs up the `CMD` vs `UNSAFE` call. See `docs/TROUBLESHOOT.MD`'s "Two open gaps."
 - **Local inference is slow without a GPU.** ~4.9 tok/s on the hardware above means minutes per answer, not seconds. See [Provider comparison](docs/USAGE.md#provider-comparison-measured).
-- **Unit tests only; nothing tests a real answer.** `tests/` covers model-free behaviour — the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and the strings the model reads. Nothing exercises an actual model call: CI builds the image but runs no inference, so a change that breaks retrieval or the agent loop still needs a human asking a question.
+- **Unit tests only; nothing tests a real answer.** `tests/` covers model-free behaviour — the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, the real `RagAssistant` constructor and CLI flag wiring, whether the `tools/` harnesses still import, and the strings the model reads. Nothing exercises an actual model call: CI builds the image but runs no inference, so a change that breaks retrieval or the agent loop still needs a human asking a question.
 
 Reasonable expectations: this answers questions about a folder of documentation accurately and with citations, and composes plausible CLI commands from documented tools. It is not a production knowledge base, not a general coding agent, and not a safe autonomous command executor.
 
@@ -87,6 +87,8 @@ Reasonable expectations: this answers questions about a folder of documentation 
 │   ├── execution.py             # 8.  the inner execution gate, then subprocess
 │   └── string_table.py          # cross-cutting: user-facing/error strings, imported by every module above
 ├── data/documents/              # sample knowledge base (CLI-tool READMEs)
+├── tests/                       # model-free unit tests: no provider, no network, no cost
+├── tools/                       # diagnostic harnesses that DO call a real model - not tests
 ├── infra/
 │   ├── azure/                   # Bicep template + deploy.py to (re)provision the Azure OpenAI resource
 │   └── docker/                  # Dockerfile + compose to run the app with no host install
@@ -171,7 +173,7 @@ uv lock
 uv run qylo --help
 ```
 
-The tests cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, and golden captures of the strings the model reads. They are not end-to-end: answering a real question is still a manual check.
+The tests cover the response contract, both execution gates, the `answer()` structured-vs-fallback branch, the ingestion helpers, the real `RagAssistant` constructor and `cli.build_assistant()` wiring, whether the three `tools/` harnesses still import, and golden captures of the strings the model reads. They are not end-to-end: answering a real question is still a manual check.
 
 ## References
 - https://docs.langchain.com/oss/python/integrations/chat/azure_chat_openai

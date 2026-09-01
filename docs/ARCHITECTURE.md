@@ -135,7 +135,7 @@ String tables are quite important and most don't use it. I did in my early caree
 
 Deliberately deferred, not oversights. Remember, I had to get it working first: 
 
-- CI/CD pipeline wiring: a first GitHub Actions workflow exists (`.github/workflows/docker.yml`) but is unverified until the repo is pushed. Prod testing is still deferred.
+- CI/CD pipeline wiring: `.github/workflows/docker.yml` exists and **has run** — 2026-08-08, run 31290501806, passed on the first attempt in 32m57s, producing a 9.63GB image matching the local build with the air-gap reconfirmed under `--network none`. The trigger is `workflow_dispatch` only; a full build is too expensive to spend on every push. It has not been re-run since the telemetry removal or the module split, so Docker is **deferred rather than failed** — nothing has broken, it simply has not been rebuilt. Deployment to anything resembling prod is still out of scope.
 - Vector-store persistence across invocations (Chroma looks promising)
 - Pinning one "recommended" local LLM (I need to try a few models, including less quality ones)
 - Command execution (`execution.py::run_command`) has no allowlist/deny-list/audit logging yet... a known, intentional gap, not something to silently patch.
