@@ -1,5 +1,7 @@
 # qylo
 
+*Ask a folder of CLI documentation a question - get a cited answer, or the command itself.*
+
 > **Naming.** Qylo grew out of an earlier prototype named `qna-chatbot`; the working title before that was `toolbot-cli`. The package and CLI were renamed to `qylo` on 2026-08-29, so every `uv run qylo ...` example below is current. The old names are kept on purpose in `docs/TROUBLESHOOT.MD` (append-only history) and in the dated "Landed" entries of `CLAUDE.md` / `AGENTS.md`, which record measurements taken against the old image tag.
 
 A local Retrieval-Augmented Generation (RAG) CLI assistant for querying a folder of PDF/Markdown/TXT documentation built for internal CLI-tool docs, where remembering every tool's exact flags is the actual problem. It ingests documents with HuggingFace embeddings into an in-memory vector store, then hands a chat model (Azure OpenAI or a local OpenAI-compatible server) a **retrieval tool** rather than pre-fetched context: the model decides for itself whether and how many times to search the knowledge base before answering, instead of always retrieving up front. Answers are combined with a small safety contract so the same assistant can also propose — and, opt-in, execute — CLI commands grounded in the docs.
@@ -154,13 +156,35 @@ Embeds Message tags/data/info at the end of any file.
 - [docs/TROUBLESHOOT.MD](docs/TROUBLESHOOT.MD) — dated debugging log and known gotchas
 - [docs/BACKLOG.md](docs/BACKLOG.md) — open work: known gaps, planned changes, and why they matter
 
-## Build
+## Running it
+
+There are two support paths. There is no publish step and no artifact to install.
+
+In order to get things setup, see [docs/SETUP.md](docs/SETUP.md). Using a cloud provider is the easy path when running. The local has some involvement as llama.cpp and a model is needed.
+
+**Locally, through uv.** The everyday path:
 
 ```sh
-uv build .
+uv venv .venv
+uv sync                       # installs the exact versions pinned in uv.lock
+.venv\Scripts\activate        # Windows — use source .venv/bin/activate elsewhere
+uv run qylo "What is flogger and what logging features does it support?"
 ```
 
-The package artifact will be written to `dist`.
+`uv sync` installs from `uv.lock` rather than re-resolving, so you get the same dependency tree
+the tests and CI ran against. Choosing a provider and filling in `.env` is
+**[docs/SETUP.md](docs/SETUP.md)**; every flag and example is **[docs/USAGE.md](docs/USAGE.md)**.
+
+**In a container.** Self-contained, weights included, verified air-gapped — see
+**[infra/docker/README.md](infra/docker/README.md)**. The image installs this project from source
+(`uv sync --frozen --no-dev --no-editable` over a copied `src/`), so it doesn't consume a built
+artifact either.
+
+> **On packaging.** `pyproject.toml` is a real package definition and `uv build .` does produce a
+> working wheel — but nothing here uses one, so it isn't part of any documented workflow. Do not
+> read that as "the packaging config is dead code": `[project.scripts]` is what creates the `qylo`
+> command, and `[build-system]` is what lets `uv sync` install the project at all, in the
+> Dockerfile included. Both are load-bearing.
 
 ## Verification
 

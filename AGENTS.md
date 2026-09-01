@@ -35,13 +35,10 @@ uv run qylo "What is flogger and what logging features does it support?"
 
 Other useful flags: `--documents <folder>` (custom folder), `--doc <file>` (single file), `-k <n>` (retrieved chunk count, default 4), `--exe` (execute a `CMD:` response), `--yolo` (also execute `UNSAFE:` responses, only combined with `--exe`), `--system-prompt <file>` (custom system prompt file instead of the bundled default).
 
-Build the package:
-
-```sh
-uv build .
-```
-
-See README's [Build](README.md#build) section for installing the built wheel.
+Qylo is run through `uv` locally or through the container image — see README's
+[Running it](README.md#running-it). There is no wheel-distribution step, so don't add one. The
+packaging config is still load-bearing: `[project.scripts]` creates the `qylo` command and
+`[build-system]` is what lets `uv sync` install the project, including in the Dockerfile.
 
 Run the tests, then the smoke checks (see `docs/TROUBLESHOOT.MD` for known failure modes):
 

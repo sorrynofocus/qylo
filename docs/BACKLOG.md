@@ -118,10 +118,6 @@ Worth one measured run each rather than guessing.
 
 ## Docs
 
-- **Mermaid line breaks.** `ARCHITECTURE.md` lines ~174-199 use `\n` in 14 flowchart node labels;
-  the documented Mermaid form is `<br/>` and support is renderer-dependent. Check the rendered page
-  on GitHub first — if labels show a literal `\n`, it is a mechanical find-replace. The sequence
-  diagram below the flowchart was rewritten and contains none.
 - **`docs/SETUP.md`** opens `# Setup and configuration` immediately followed by `## Setup`. Mildly
   redundant, but `## Configuration` as a sibling is what eight anchors depend on, so collapsing it
   is not free.
