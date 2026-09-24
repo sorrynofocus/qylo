@@ -158,6 +158,48 @@ Embeds Message tags/data/info at the end of any file.
 
 ## Running it
 
+### My TL;DR setup/run I currently use after provider and virtual env setup (local/cloud):
+
+Make sure `.env` file is set up correctly:
+
+```
+CHATBOT_MODEL_PROVIDER=azure
+
+AZURE_OPENAI_ENDPOINT=https://[REDACTED]].openai.azure.com/
+AZURE_OPENAI_API_KEY=[REDACTED]]
+AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-5-nano-deploy
+AZURE_OPENAI_API_VERSION=2024-12-01-preview
+
+
+LOCAL_OPENAI_BASE_URL=http://localhost:8080/v1
+LOCAL_OPENAI_API_KEY=nope
+LOCAL_MODEL_NAME=qwen3.5-9b
+```
+
+_In terminal:_
+Start llama.cpp server with huggingface model:
+
+```cmd
+llama-server -hf unsloth/Qwen3.5-9B-GGUF:Q4_K_M -c 8192 
+```
+
+_In another terminal:_
+
+Head over the Qylo source and activate the environment:
+
+```cmd
+cd C:\Users\ME\source\github-repo\sorrynofocus\qylo
+.venv\Scripts\activate
+```
+
+ Finally, run the Qylo application:
+
+```cmd
+uv run qylo {query}
+```
+
+### Setup/Run, in detail
+
 There are two support paths. There is no publish step and no artifact to install.
 
 In order to get things setup, see [docs/SETUP.md](docs/SETUP.md). Using a cloud provider is the easy path when running. The local has some involvement as llama.cpp and a model is needed.
