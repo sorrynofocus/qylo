@@ -8,6 +8,7 @@ A local Retrieval-Augmented Generation (RAG) CLI assistant for querying a folder
 
 This project was designed on my older Laptop - the Lenovo Thinkpad T15G with the following specs:
 
+> **TL;DR:** just want to run it? Jump to [Running it](#running-it).
 
 | HW | Description | 
 |---|---|
